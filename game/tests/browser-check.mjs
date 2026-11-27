@@ -2454,6 +2454,18 @@ async function stagek() {
     await shot('k01-archer-beside-the-boat-' + tag);
     const v = view.lod.find(q => q.sub);
     note(!!v && v.detail && Math.abs(v.y - (view.water - view.depth)) < 1 && view.lod.filter(q => q.sub).length === 1, tag + ': the Archer is drawn with its own model (not a frigate), in full detail close by, at its depth', view);
+    // the outside camera, cycled with F as a player would, visits the identified Archer 90 m down and watches it from under water at its depth
+    if (!phone) {
+      await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); a.known=true; a.ident=1; a.depth=a.wantD=90; __G.stepFrames(3); })(); 1'); await frames(3);
+      let said = '';
+      for (let i = 0; i < 8 && !/Camera: the submarine/.test(said); i++) { await key('KeyF', 'f', 70); await frames(2); said = await ev('__G.said.slice(-1)[0]||""'); }
+      await frames(20);
+      const eye = await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); return {cam:+__G.camera.position.y.toFixed(1),water:+__G.waterY.toFixed(1),archer:+(__G.waterY-a.depth).toFixed(1)}; })()');
+      await shot('k04-camera-on-the-archer-' + tag);
+      note(/Camera: the submarine/.test(said) && eye.cam < eye.water - 1 && Math.abs(eye.cam - eye.archer) < 40, tag + ': View (F) visits the Archer and watches it from under water near its depth', { said, eye });
+      await key('KeyF', 'f', 70); await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); a.known=false; a.ident=0; a.depth=a.wantD=40; })(); 1');
+      for (let i = 0; i < 8 && !/Camera: your boat/.test(await ev('__G.said.slice(-1)[0]||""')); i++) { await key('KeyF', 'f', 70); await frames(2); }
+    }
     // the Search depth row, after Run depth, Shallow at first; fire control suggests Deep once the target is a classified submarine
     await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); a.x=st.player.x+1800; a.z=st.player.z; for(let i=0;i<30*400;i++){ __G.stepFrames(1); const c=st.contacts.find(q=>q.id===a.id); if(c&&c.cls==="submarine"){ __G.game.sel=c.id; break; } } __G.stepFrames(2); __G.setSettings(true); })(); 1'); await frames(4);
     const set = await ev('({rows:Array.from(document.querySelectorAll("#tset .srow")).filter(r=>r.getBoundingClientRect().height>0).map(r=>r.dataset.k||r.id),band:Array.from(document.querySelectorAll("#tset [data-k=band] button")).map(b=>{ const r=b.getBoundingClientRect(); return {t:b.textContent,on:b.getAttribute("aria-pressed"),w:Math.round(r.width),h:Math.round(r.height)}; }),note:document.getElementById("ts-note").textContent,sel:__G.game.sel,label:document.getElementById("' + (phone ? 'tb-con' : 'sg-cls') + '").textContent,contact:document.getElementById("contact").textContent})');

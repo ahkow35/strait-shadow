@@ -1964,6 +1964,49 @@ if (want('duel')) {
     return { ok: tid && far && evs.some(e => e.type === (ship ? 'homing' : 'torpEnd')) && !evs.some(e => !e.quiet), text: '(fired ' + (tid ? 'yes' : 'no') + ', always beyond ' + V.sonar.torp + ' m: ' + far + ') ' + evs.map(e => e.type + (e.on ? ' on ' + e.on : '') + (e.quiet ? ' quiet' : ' LOUD')).join(', '), on: evs.filter(e => e.on).map(e => e.on) }; };
     const alone = unheard(false), shipAhead = unheard(true);
     parts.push([alone.ok && shipAhead.ok && shipAhead.on.includes('neutral'), 'an Archer torpedo the boat never hears is reported quietly: on its own ' + alone.text + '; with a neutral ship ahead of it ' + shipAhead.text]); }
+  // 7c. a heavy torpedo's seeker hears only within its hearing depth and its cone, for the Archer as for a noisemaker, and lets go of what it was told to reject
+  { const T = V.torp, H = V.band.hears, SUBT = -1;
+    // the boat's torpedo, launched Deep at the Archer held still 1,600 m ahead (its own sonar off), returned as soon as it is in the water
+    const launch = seed => { const { g, st, p, a } = world(seed); a.x = p.x + Math.cos(p.h) * 1600; a.z = p.z - Math.sin(p.h) * 1600; a.depth = a.wantD = st.layer + V.band.below; a.mode = 'listen'; a.modeT = 1e9; A.sonar0 = A.sonar; A.sonar = 0;
+      let t = null; for (let i = 0; i < 30 * 10 && !t; i++) { g.step(STEP, { throttle: 0, depthCmd: p.depth, fire: p.readyT > 0, band: 1 }); g.events.length = 0; t = st.torps.find(q => q.side === 0); }
+      A.sonar = A.sonar0; delete A.sonar0; return { g, st, p, a, t }; };
+    const hold = a => { a.speed = 0; a.mode = 'listen'; a.modeT = 1e9; a.wantD = a.depth; };
+    // (a) the Deep window is measured from the chosen search depth: search depth 90 m, the torpedo at 130 m, the Archer 300 m ahead at 169 m is not heard; at 120 m it is
+    const window = archerD => { const { g, st, a, t } = launch(7); t.phase = 'search'; t.sd = 90; t.depth = 130; t.run = t.enable = 2000; t.h = bearing(t.x, t.z, a.x, a.z);
+      a.x = t.x + Math.cos(t.h) * 300; a.z = t.z - Math.sin(t.h) * 300; a.depth = archerD; let lock = false;
+      for (let i = 0; i < 10; i++) { hold(a); a.depth = archerD; g.step(STEP, { throttle: 0 }); g.events.length = 0; if (t.target === SUBT) lock = true; } return lock; };
+    const outside = window(169), inside = window(120);
+    parts.push([!outside && inside, 'Deep: search depth 90 m, the torpedo at 130 m: the Archer at 169 m (79 m from the search depth) is ' + (outside ? 'TAKEN' : 'not heard') + '; at 120 m it is ' + (inside ? 'taken' : 'NOT TAKEN')]);
+    // (b) the seeker view shows the Archer only within that hearing depth: a Shallow torpedo searching near the surface does not show it 130 m down
+    const view = archerD => { const { g, st, p, a, t } = launch(8); t.band = 0; t.phase = 'search'; t.depth = T.depth; t.run = t.enable = 2000; t.h = bearing(t.x, t.z, a.x, a.z);
+      a.x = t.x + Math.cos(t.h) * 300; a.z = t.z - Math.sin(t.h) * 300; hold(a); a.depth = archerD; p.wireId = t.id; g.step(STEP, { throttle: 0 }); g.events.length = 0;
+      const d = Math.hypot(a.x - t.x, a.z - t.z); return !!st.seeker && st.seeker.echoes.some(e => Math.abs(e.d - d) < 30); };
+    const deepShown = view(130), shallowShown = view(T.depth);
+    parts.push([!deepShown && shallowShown, 'the seeker view: a Shallow torpedo shows the Archer 130 m down: ' + (deepShown ? 'SHOWN' : 'no') + '; at its own running depth: ' + (shallowShown ? 'shown' : 'NOT SHOWN')]);
+    // (c) Reject: a torpedo homing on the Archer that is told to reject it lets it go and does not take it again
+    { const { g, st, p, a, t } = launch(7); let locked = false;
+      for (let i = 0; i < 30 * 120 && !locked && st.torps.includes(t); i++) { hold(a); g.step(STEP, { throttle: 0, depthCmd: p.depth }); g.events.length = 0; locked = t.target === SUBT; }
+      hold(a); g.step(STEP, { throttle: 0, depthCmd: p.depth, cmd: 'reject' }); const ev = g.events.map(e => e.type); g.events.length = 0; let again = t.target === SUBT;
+      for (let i = 0; i < 30 * 5 && st.torps.includes(t); i++) { hold(a); g.step(STEP, { throttle: 0, depthCmd: p.depth }); g.events.length = 0; if (t.target === SUBT) again = true; }
+      parts.push([locked && ev.includes('reject') && !again, 'Reject: a torpedo locked on the Archer (' + (locked ? 'locked' : 'NEVER LOCKED') + ') is told to reject it (' + ev.join(',') + ') and ' + (again ? 'TAKES IT AGAIN' : 'leaves it alone for the next 5 s')]); }
+    // (d) a noisemaker works only where the seeker hears: an Archer torpedo at 90 m with a noisemaker of the boat's 60 m behind it at 10 m is not fooled;
+    // one 60 m ahead of it at its own depth is (fooling set certain for this check)
+    const bait = ahead => { const { g, st, p, a } = world(21); a.x = p.x + 1800; a.z = p.z; a.depth = a.wantD = V.periscope; a.mode = 'listen'; a.modeT = 30; let t = null;
+      for (let i = 0; i < 30 * 900 && !t && !st.over; i++) { g.step(STEP, { throttle: 0, depthCmd: 30 }); g.events.length = 0; t = st.torps.find(q => q.owner === a.id); }
+      if (!t) return null; p.x = t.x - 9000; p.z = t.z; const f0 = T.fool, f1 = T.foolWire; T.fool = T.foolWire = 1;
+      t.phase = 'search'; t.sd = t.depth = 90; t.run = t.enable = 2000; t.target = 0; t.pod = 0;
+      const k = ahead ? 1 : -1, dc = { id: st.nextId++, side: 0, x: t.x + k * Math.cos(t.h) * 60, z: t.z - k * Math.sin(t.h) * 60, depth: ahead ? 90 : 10, life: 30 }; st.decoys.push(dc);
+      let fooled = false; for (let i = 0; i < 5; i++) { g.step(STEP, { throttle: 0 }); if (g.events.some(e => e.type === 'fooled')) fooled = true; g.events.length = 0; }
+      T.fool = f0; T.foolWire = f1; return fooled; };
+    const behind = bait(false), front = bait(true);
+    parts.push([behind === false && front === true, 'a noisemaker of the boat\'s against an Archer torpedo at 90 m: 60 m behind it at 10 m it is ' + (behind ? 'TAKEN' : behind === null ? 'NOT TRIED (no torpedo)' : 'not heard') + '; 60 m ahead at 90 m it is ' + (front ? 'taken' : 'NOT TAKEN')]);
+    // (e) Free Patrol: an Archer 1.5 km off that hears the boat going at Standard, and is then removed from the sea still adds "Heard by the Archer" to the debrief
+    { const s0 = MISSIONS.patrol.setup; let api = null;
+      MISSIONS.patrol.setup = G => { s0(G); api = G; const p = G.st.player; G.addShip({ kind: 'submarine', x: p.x + 1500, z: p.z, h: PI, target: true, wave: 3, depth: V.periscope }); };
+      const g = createSim({ mission: 'patrol', seed: 21 }), st = g.state; MISSIONS.patrol.setup = s0; const a = sub(st); a.mode = 'listen'; a.modeT = 30;
+      for (let i = 0; i < 30 * 600 && a.pic.base < 2 && !st.over; i++) { g.step(STEP, { throttle: 3, depthCmd: 30 }); g.events.length = 0; }
+      const heard = a.pic.base >= 2; api.removeShip(a); api.end('lose', 'test'); const line = st.grade ? st.grade.stealth : '';
+      parts.push([heard && !sub(st) && /Heard by the Archer/.test(line), 'Free Patrol: the Archer heard the boat (' + heard + ') and was removed (' + !sub(st) + '); the debrief still says: ' + line]); } }
   // 8. balance (design 7.7): each row over 200 seeds, within 10 points of its target
   { const pct = n => Math.round(100 * n / 200), row = (name, got, lo, hi) => parts.push([got >= lo && got <= hi, name + ': ' + got + '% (target ' + lo + ' to ' + hi + '%)']);
     // detected first: both boats 5 km apart on the same side of the layer, heading roughly for each other

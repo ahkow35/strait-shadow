@@ -1566,7 +1566,7 @@ function createSim(opts){
       else{ penalty=s.neutral?'A neutral ship was hit: one star lost.':'A torpedo went off among sea life: one star lost.'; n=Math.max(0,n-1); }
     }
     // "Undetected" and the rest speak of the surface side as before; an Archer that ever had the boat at contact level adds a line of its own
-    const heard=st.ships.some(q=>q.kind==='submarine'&&q.heard);
+    const heard=!!st.subHeard;
     return {stars:n,lines:lines.map(l=>({ok:!!l[0],label:l[1]})),penalty:penalty,
       stealth:(s.trackedT>=1?'Tracked for '+Math.round(s.trackedT)+' s':s.maxLevel>=2?'Searched for, never tracked':s.maxLevel===1?'Suspected only':'Undetected')+(heard?'. Heard by the Archer':'')};
   }
@@ -2621,7 +2621,8 @@ function createSim(opts){
       if(!k.sol.fit||k.sol.g<1){ emit('refuse',{what:c,why:'grade'}); return; }
       // sent to another contact: it drops what it had, turns for where fire control predicts the new one will be, and listens to nothing on the way
       const q=k.sol, dt=st.t-q.t, kn=q.v!==null, m=intercept(t.x,t.z,q.x+q.vx*dt,q.z+q.vz*dt,kn?q.vx:0,kn?q.vz:0,V.torp.speed,0);
-      t.from=t.target&&t.target!==k.id?t.target:t.pod&&t.pod!==k.id?t.pod:0;
+      const was=t.target===SUB?(quarryOf(t)||{}).id:t.target;      // SUB stands for the submarine it hunts: sent to that same contact, it is not sent away from it
+      t.from=t.target&&was!==k.id?t.target:t.pod&&t.pod!==k.id?t.pod:0;
       t.target=0; t.pod=0; t.bait=0; t.phase='transit'; t.tx=m.x; t.tz=m.z; t.transT=0; t.pref=true; t.goto=false; t.deep=false; t.aimed=false; t.circ=0;
       emit('retarget',{id:t.id,target:k.id,late:t.run>=t.max}); return;
     }
@@ -2649,6 +2650,9 @@ function createSim(opts){
   }
   // what the selected torpedo's seeker hears, for the seeker view: everything in front of its nose within its hearing, and what it has locked on to.
   // moving and mach (machinery noise) are all it can tell of a lock: a noisemaker neither moves nor has machinery.
+  // whether a torpedo's seeker hears something at depth d: a Shallow one within V.attack.hears of its running depth; a Deep one within V.band.hears of the
+  // search depth chosen at launch, and of its own depth once it homes on the submarine and follows it down or up
+  function hearsAt(t,d){ return t.band?Math.abs(d-(t.phase==='home'&&t.target===SUB?t.depth:t.sd))<=V.band.hears:Math.abs(d-V.torp.depth)<=V.attack.hears; }
   function seekerView(){
     const t=ownWeapon(), T=V.torp;
     if(!t){ st.seeker=null; return; }
@@ -2659,7 +2663,7 @@ function createSim(opts){
       const o={off:off,d:d,lock:mine}; e.push(o); if(mine) lock={off:off,d:d,moving:moving,mach:mach};
     };
     if(on){
-      for(const s of st.ships) if(!s.out) add(s.id,s.x,s.z,s.speed>0.5,s.noise>0);
+      for(const s of st.ships) if(!s.out&&(s.kind!=='submarine'||hearsAt(t,s.depth))) add(s.id,s.x,s.z,s.speed>0.5,s.noise>0);      // a submarine only within its hearing depth
       for(const dc of st.decoys) if(sideOf(dc)!==sideOf(t)) add(dc.id,dc.x,dc.z,false,false);
       for(const b of st.bios) if(b.kind!=='fish') add(b.id,b.x,b.z,true,false);
     }
@@ -2674,7 +2678,7 @@ function createSim(opts){
   // chosen at launch (sd), hears within V.band.hears of it, and once it homes on the submarine follows it in depth too.
   // One fired by a ship goes for the loudest thing in its cone rather than the nearest, and what it locks on to is named in its event.
   function stepHeavyTorp(t,dt){
-    const T=V.torp, K=V.attack, B=V.band, own=ownerOf(t), q=quarryOf(t), mine=sideOf(t)==='player', heard=!!q&&(t.band?Math.abs(q.depth-t.depth)<=B.hears:Math.abs(q.depth-T.depth)<=K.hears);
+    const T=V.torp, K=V.attack, B=V.band, own=ownerOf(t), q=quarryOf(t), mine=sideOf(t)==='player', heard=!!q&&hearsAt(t,q.depth);
     // a swim-out launch works up to its run speed slowly; an impulse launch is there in a moment
     t.speed=Math.min(T.speed,t.speed+(t.launch===0?(T.speed-K.swim.speed)/K.swim.ramp:K.impulse.accel)*dt); t.life-=dt; t.run+=t.speed*dt;
     // the wire parts at its full length, and at once when the ship holding it is gone or out of action: a sunk ship guides nothing
@@ -2703,7 +2707,7 @@ function createSim(opts){
           const m=t.pref?Math.hypot(s.x-t.tx,s.z-t.tz):mine?d:d*d/Math.max(s.noise,0.01); if(m<best){ best=m; tg=s; }
         }
         // the submarine it hunts is one more thing ahead of it, by the same rule
-        if(heard){
+        if(heard&&t.from!==SUB&&t.rej.indexOf(SUB)<0){
           const d=Math.hypot(q.x-t.x,q.z-t.z), m=t.pref?Math.hypot(q.x-t.tx,q.z-t.tz):mine?d:d*d/Math.max(q.noise,0.01);
           if(d<T.seek&&Math.abs(wrap(brg(t.x,t.z,q.x,q.z)-t.h))<T.cone&&m<best){ best=m; tg=q; }
         }
@@ -2723,6 +2727,8 @@ function createSim(opts){
       // the ship's noisemaker: a torpedo off its wire usually goes for it, one still on the wire is told which echo is the ship. Each noisemaker gets one try.
       for(const dc of st.decoys){
         if(sideOf(dc)===sideOf(t)||t.seen.indexOf(dc.id)>=0||Math.hypot(dc.x-t.x,dc.z-t.z)>T.baitR) continue;
+        // a submarine's noisemaker, or any against a torpedo that is not the boat's, works only where the seeker hears: near its search depth and in its cone
+        if((!mine||dc.sub)&&(!hearsAt(t,dc.depth)||Math.abs(wrap(brg(t.x,t.z,dc.x,dc.z)-t.h))>=T.cone)) continue;
         t.seen.push(dc.id);
         if(rng()<(t.wire?T.foolWire:T.fool)){ bait=dc; t.bait=dc.id; t.target=0; t.pod=0; pod=null; t.phase='bait'; tg=null; t.goto=false; const e={id:t.id,wire:t.wire}; if(!mine&&!audible(t)) e.quiet=1; emit('fooled',mark(e,mine)); break; }
       }
@@ -2849,7 +2855,7 @@ function createSim(opts){
       // and, once per torpedo, a snap shot back at where its picture puts the boat, if it has one at all
       if(s.snap!==th.id&&tr.base>=A.snap&&s.tubeCd<=0&&s.torps>0){ s.snap=th.id; subFire(s,tr,Math.hypot(tr.x-s.x,tr.z-s.z)); }
       if(s.cm>0&&s.cmCd<=0&&near){
-        const dc={id:st.nextId++,side:1,x:s.x-Math.cos(s.h)*25,z:s.z+Math.sin(s.h)*25,depth:s.depth,life:V.decoyLife};
+        const dc={id:st.nextId++,side:1,sub:1,x:s.x-Math.cos(s.h)*25,z:s.z+Math.sin(s.h)*25,depth:s.depth,life:V.decoyLife};
         st.decoys.push(dc); s.cm--; s.cmCd=12;
       }
     }else{
@@ -3158,7 +3164,7 @@ function createSim(opts){
     // with the Control room damaged the plot is kept up only every other second
     senseT+=dt; if(senseT>=1){ senseT-=1; if(M.endless) lifeAround(); sense(); if(!(dm.on&&worn(dm.sec[1]))||(dm.listenN++&1)===0) listen(); }
     stepEnemy(st.enemy,true,dt);
-    for(const s of st.ships) if(s.pic){ stepEnemy(s.pic,false,dt); if(s.pic.base>=2) s.heard=true; }
+    for(const s of st.ships) if(s.pic){ stepEnemy(s.pic,false,dt); if(s.pic.base>=2){ s.heard=true; if(s.kind==='submarine') st.subHeard=true; } }      // subHeard outlasts the Archer's record, which a Free Patrol removes in time
     if(!st.over) M.tick(API);
     if(!st.over&&!M.endless&&st.t>=st.timeLimit-1e-6) end('lose',M.timeout||'Mission failed: out of time.');
     return st;
@@ -5299,10 +5305,11 @@ function syncEntities(dt,k){
 const cam={az:0.38,el:0.2,r:100,elGoal:null,mode:-1}; let SHAKE=0, viewR=100;
 // the outside camera: 0 is the usual view of the boat, 1 rides with the boat's own torpedo, 2 sits off a ship the boat has identified, 3 swims with sea life it has classified.
 // FOC is the point it looks at, measured from the boat: the sea, the seabed and the specks in the water are centred there.
-const EYE={mode:0,id:0,az:0.5,el:0.12,r:40,hold:0,x:0,z:0,dy:0,h:0,top:false}, FOC={x:0,z:0,wx:NaN,wz:NaN};
+const EYE={mode:0,id:0,az:0.5,el:0.12,r:40,hold:0,x:0,z:0,dy:0,h:0,top:false,sub:false}, FOC={x:0,z:0,wx:NaN,wz:NaN};
 function eyeSet(mode,id){
   EYE.mode=mode||0; EYE.id=id||0; EYE.hold=0; EYE.top=false;
   if(mode===1){ EYE.az=0.62; EYE.el=0.13; EYE.r=36; } else if(mode===4){ EYE.az=0.55; EYE.el=0.16; EYE.r=70; } else if(mode===2){ EYE.az=0.95; EYE.el=0.09; EYE.r=210; }
+  const sub=mode===2&&G.st.ships.some(q=>q.id===id&&q.kind==='submarine'); EYE.sub=sub; if(sub){ EYE.el=0.04; EYE.r=110; }      // the Archer is watched from under water, at its depth
   else if(mode===3){ const b=G.st.bios.find(q=>q.id===id), kd=b?b.kind:''; EYE.az=kd==='whale'?1.15:0.8; EYE.el=kd==='dolphin'?0.14:0.04; EYE.r=(kd==='dolphin'?16:30)*eyeTall(); }
   $('t-view').setAttribute('aria-pressed',EYE.mode?'true':'false');
 }
@@ -5345,7 +5352,7 @@ function stepCamera(dt,k){
         else if(b.kind==='dolphin'){ EYE.x=_p.x-5*Math.cos(_p.h); EYE.z=_p.z+5*Math.sin(_p.h); EYE.dy=0.4; }   // the middle of the pod
         else{ const v=LIFE.v.get(b.id), lt=st.t+st.afterT-(1-k)*STEP, px=_p.x, pz=_p.z, ph=_p.h, m=lifeAt(b,0,px,pz,ph,lt,v?v.s:0); EYE.x=m.x; EYE.z=m.z; EYE.dy=EYE.top?0:-m.d;
           if(EYE.top){ const m2=lifeAt(b,1,px,pz,ph,lt,v?v.s:0); EYE.x=(EYE.x+m2.x)/2; EYE.z=(EYE.z+m2.z)/2; } } } }   // up for air: the first two of the pod, seen together
-    else{ const q=st.ships.find(q=>q.id===EYE.id), hl=q?null:st.helos.find(q=>q.id===EYE.id); if((q||hl)&&pose(EYE.id,k)){ found=true; EYE.x=_p.x; EYE.z=_p.z; EYE.h=_p.h; EYE.dy=q?7:_p.y+1.3; } }
+    else{ const q=st.ships.find(q=>q.id===EYE.id), hl=q?null:st.helos.find(q=>q.id===EYE.id); if((q||hl)&&pose(EYE.id,k)){ found=true; EYE.x=_p.x; EYE.z=_p.z; EYE.h=_p.h; EYE.dy=q?(EYE.sub?_p.y:7):_p.y+1.3; } }
     // when its subject is gone the camera waits a moment where it is, then comes home
     if(!found&&!(EYE.hold>0)) EYE.hold=2.5;
     if(EYE.hold>0&&!st.over){ EYE.hold-=dt; if(EYE.hold<=0) eyeSet(0); }
@@ -5355,7 +5362,7 @@ function stepCamera(dt,k){
     FOC.x=fx; FOC.z=fz; viewR=EYE.r;
     const x=fx+EYE.r*ce*Math.sin(az), z=fz+EYE.r*ce*Math.cos(az); let y=fy+EYE.r*Math.sin(EYE.el);
     // ships and helicopters are watched from the air; the torpedo's camera never sits half in and half out of the water
-    if(EYE.mode===2||(EYE.mode===3&&EYE.top)) y=Math.max(y,waterY+1.5); else if(EYE.mode===3) y=Math.min(y,waterY-1.5); else if(Math.abs(y-waterY)<1.5) y=waterY+(y>=waterY?1.5:-1.5);
+    if((EYE.mode===2&&!EYE.sub)||(EYE.mode===3&&EYE.top)) y=Math.max(y,waterY+1.5); else if(EYE.mode===3||EYE.sub) y=Math.min(y,waterY-1.5); else if(Math.abs(y-waterY)<1.5) y=waterY+(y>=waterY?1.5:-1.5);
     const floor=waterY-G.sim.seabed(RS.ox+x,RS.oz+z)+2.5; if(y<floor) y=floor;
     camera.position.set(x,y,z);
     if(SHAKE>0){ SHAKE=Math.max(0,SHAKE-dt); const a=REDUCED?0:Math.min(1,SHAKE)*EYE.r*0.006; camera.position.x+=rnd(-a,a); camera.position.y+=rnd(-a,a); camera.position.z+=rnd(-a,a); }
