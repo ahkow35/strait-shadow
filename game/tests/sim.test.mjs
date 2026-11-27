@@ -1948,8 +1948,8 @@ if (want('sides')) {
   parts.push([QUIET.every(k => count(seen.ev, k) > 0) && !seen.statsSame && seen.stats.firstAlert >= 0 && seen.stats.maxLevel >= 3 && seen.stats.trackedT > 0,
     'the twin, on the shown picture, does report and count (' + said(seen.ev) + '; first alert ' + seen.stats.firstAlert + ', highest level ' + seen.stats.maxLevel + ', time tracked ' + seen.stats.trackedT.toFixed(1) + ' s)']);
   // A frigate's heavy torpedo and the boat, in Strait Shadow's waters. The torpedo starts 1,000 m astern of the boat and runs up its track at its search depth.
-  // The frigate that owns it lies 300 m ahead of the torpedo and the other frigate 400 m ahead, both nearer than the boat, inside the seeker's cone and 40 m
-  // clear of its track.
+  // The frigate that owns it lies across the torpedo's track 300 m ahead, so the torpedo runs through its hull; the other frigate lies 400 m ahead and 40 m
+  // clear of the track. Both are nearer than the boat and inside the seeker's cone.
   // The other side is kept unaware, so nothing else is fired.
   const hunt = depth => { const w = mWorld(11, { plain: true, level: 0, depth, mission: 'strait' }), st = w.st; w.tx = 40; w.tz = 700; w.v = 0; w.hold(); w.also('frigate', -40, 600, PI / 2);
     const t = torp(st, { owner: w.tgt.id, x: 0, z: 1000 }), o = { sub: false, own: false };
@@ -1958,11 +1958,11 @@ if (want('sides')) {
     o.struck = w.ev.filter(e => e.type === 'hit' && mine(e)).length; o.stats = st.stats; o.t = st.t; return o; };
   const shallow = hunt(V.periscope), under = hunt(14), deep = hunt(30);
   parts.push([shallow.homing.length >= 1 && shallow.homing[0].side === 1 && shallow.sub && !shallow.own && !shallow.struck && shallow.hit.length === 1 && shallow.stats.taken === 1 && shallow.stats.hits === 0 && shallow.stats.neutral === 0,
-    "a frigate's heavy torpedo passes the frigate that owns it and the other frigate, takes the boat at periscope depth for its target and strikes it (after " + shallow.t.toFixed(0) + ' s; hits taken ' + shallow.stats.taken + ')']);
+    "a frigate's heavy torpedo runs through the hull of the frigate that owns it unharmed, passes the other frigate, takes the boat at periscope depth for its target and strikes it (after " + shallow.t.toFixed(0) + ' s; hits taken ' + shallow.stats.taken + ')']);
   parts.push([under.homing.length >= 1 && under.sub && !under.hit.length && under.end === 1 && under.stats.taken === 0, 'with the boat at 14 m it hears the boat and follows it but passes over the hull and runs out (locked ' + under.homing.length + ' time(s), hits taken ' + under.stats.taken + ')']);
   parts.push([!deep.homing.length && !deep.sub && !deep.hit.length && deep.end === 1 && deep.stats.taken === 0, 'with the boat at 30 m, out of its seeker\'s hearing, it never locks on and runs out']);
   // A heavy torpedo and a neutral ship, on Hard: a merchant lies still across the torpedo's track 600 m ahead, with the boat 3,000 m away and deep. The frigate's
-  // torpedo has its frigate just off its track on the way; the twin is one of the boat's own, with the frigate far off.
+  // torpedo has its frigate across its track on the way; the twin is one of the boat's own, with the frigate far off.
   const strike = own => { const w = mWorld(11, { plain: true, level: 0, difficulty: 'hard' }), st = w.st; if (!own) { w.tx = 3040; w.tz = 800; w.v = 0; } w.hold();
     const m = w.also('merchant', 3000, 400, 0), hp = m.hp, score = st.score, t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
     w.run(60, {}, q => q.torps.includes(t) && !q.over);
@@ -1990,6 +1990,12 @@ if (want('sides')) {
   const theirP = pod(false), ourP = pod(true);
   parts.push([!!theirP && !!ourP && theirP.hit && theirP.bio === 0 && !theirP.over && ourP.hit && ourP.bio === 1 && ourP.over && ourP.result === 'lose',
     "a frigate's heavy torpedo that goes off among sea life is not counted against the captain" + (theirP && ourP ? ' (sea life hit ' + theirP.bio + ', and on Hard the mission goes on); the twin, one of the boat\'s own, is counted (' + ourP.bio + ') and on Hard ends the mission' : ': NO POD in this world')]);
+  // The owner gone: a heavy torpedo still on its wire whose ship is no longer there. The wire drops, and as it was never the boat's nothing is reported or counted.
+  const orphan = (() => { const w = mWorld(11, { plain: true, level: 0 }), st = w.st, t = torp(st, { owner: 424242, wire: true, x: 3000, z: 1000 }); let threw = '';
+    try { w.run(2, {}); } catch (e) { threw = String((e && e.message) || e); }
+    return { threw, wire: t.wire, cuts: st.stats.wireCuts, said: count(w.ev, 'wireCut'), runs: st.torps.includes(t) }; })();
+  parts.push([!orphan.threw && orphan.wire === false && orphan.cuts === 0 && !orphan.said && orphan.runs,
+    'a heavy torpedo whose owning ship is gone drops its wire and runs on, with no wire cut reported or counted' + (orphan.threw ? ' (it threw: ' + orphan.threw + ')' : '')]);
   check('sides', parts);
 }
 if (mLines.length) { console.log('Missile balance over 200 seeds (the fixed scene of section 5; every layer counted together):'); for (const l of mLines) console.log(l); }
