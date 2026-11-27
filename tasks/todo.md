@@ -6,7 +6,7 @@ Source: the approved design, `tasks/2026-11-27-new-enemies-design.md`, sections 
 
 ## PR 1: general rules, same stored state (structural only, no new behaviour)
 
-claimed-by: new-enemies duel build 2026-11-27
+PR #2 (merged 2026-11-27)
 
 Revised after the plan critique (2026-11-27): the replay check fingerprints the whole game state, so PR 1 must not add or rename any stored field, or the "unchanged" test cannot be fair.
 - **Sides are worked out, not stored:** one function says which side a ship, helicopter, buoy, torpedo or decoy is on, from what already exists (the neutral flag, the kind, the torpedo's existing numeric side). Every "a frigate means hostile" assumption calls it.
@@ -17,6 +17,10 @@ Revised after the plan critique (2026-11-27): the replay check fingerprints the 
 - Commit the design document and this plan in the same PR (docs only).
 
 ## PR 2: the Duel (built on PR 1 after it merges)
+
+claimed-by: new-enemies duel build 2026-11-27
+
+**Carried over from PR 1's review (must be fixed here):** a ship-owned torpedo's lock-on event does not say what it locked on to, so the screen says "locked on to you" for any lock (and must say nothing at all for the hidden Archer's torpedo until the player can hear it); the "fooled" message assumes the boat's own torpedo; the neutral-hit messages name the ship kind even if the captain has not identified it (word them by what the captain knows); mission win rules and the end-of-game summary cannot yet tell who sank a ship (a ship sunk by a weapon that is not the boat's must not count as the captain's success).
 
 In this order, each with its sim checks:
 1. **Submarine as a ship kind** with a depth, its own noise (the player's curve times 1.15), its own passive hull sonar (0.8 of a frigate's reach, layer and own-speed rules), and its own picture of the player. No active sonar. **It sees a raised mast only while it is itself at periscope depth** (its own periscope up), at the frigate's visual rule; below that it has only its ears.

@@ -1867,8 +1867,10 @@ if (want('replay')) {
 // the statistics and the whole state must be the same: the state is compared as text, which is what the replay check's fingerprint is taken from.
 // The games: in every mission the scripted player on six seeds, an idle player, twelve random players and the three replay games with the second hand on
 // the panel; then the 13 missile games. A game file that cannot be read from git fails the check: it is never skipped.
+// Free Patrol may part from the old game at its first Archer wave (the Duel plan, PR 2: that wave is drawn from a fourth random stream the old game does not
+// have); a Free Patrol game is compared up to that wave and stops there, and only there: a Free Patrol game must have run at least 300 s to stop that way.
 if (want('unchanged')) {
-  const BASE = 'main:game/strait-shadow.html', diffs = [], held = {}, kinds = { scripted: [1].concat(SEEDS), idle: [1], random: [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012], replay: [3, 17, 29] };
+  const BASE = 'main:game/strait-shadow.html', diffs = [], forks = [], held = {}, kinds = { scripted: [1].concat(SEEDS), idle: [1], random: [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012], replay: [3, 17, 29] };
   let OLD = null, why = '', sameText = false, games = 0, steps = 0, evs = 0, threats = 0;
   try {
     const om = execFileSync('git', ['show', BASE], { cwd: here, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).match(/<script id="sim">([\s\S]*?)<\/script>/);
@@ -1892,6 +1894,7 @@ if (want('unchanged')) {
       a.step(STEP, pa(A)); b.step(STEP, pb(B)); steps++;
       for (let k = 0; k < Math.max(a.events.length, b.events.length); k++) {
         const ea = a.events[k], eb = b.events[k], ta = JSON.stringify(ea), tb = JSON.stringify(eb), threat = !!eb && isThreat(eb, B);
+        if (eb && eb.type === 'wave' && eb.sub && B.mission === 'patrol' && B.t >= 300) { forks.push(label + ' at ' + Math.round(B.t) + ' s'); return; }
         if (ta !== tb || (!!ea && OLD.isThreat(ea, A)) !== threat) { diffs.push(label + ' at tick ' + B.tick + ': event ' + ta + ' became ' + tb + (ta === tb ? ' (it drops time compression in one and not the other)' : '')); return; }
         const key = eb.type + (eb.type === 'homing' ? ' side ' + eb.side : ''); held[key] = (held[key] || 0) + 1; evs++; if (threat) threats++;
       }
@@ -1918,7 +1921,8 @@ if (want('unchanged')) {
   const per = Object.keys(kinds).map(k => kinds[k].length + ' ' + k).join(', '), n = ids.length * Object.keys(kinds).reduce((q, k) => q + kinds[k].length, 0) + M_GAMES.length;
   check('unchanged', [[!!OLD, OLD ? 'the game file was read from git (' + BASE + '; its sim is ' + (sameText ? 'the same text as the one under test' : 'not the same text as the one under test') + ')' : 'the game file could not be read from git (git show ' + BASE + '), so nothing was compared: ' + why]
   ].concat(!OLD ? [] : [[!diffs.length && games === n && ids.length === Object.keys(OLD.MISSIONS).length, games + ' games (' + ids.length + ' missions: ' + per + ' each; ' + M_GAMES.length + ' missile games), ' + steps + ' steps and ' + evs + ' events (' + threats + ' of them drop time compression)'
-      + (diffs.length ? ' DIFFER in ' + diffs.length + ': ' + diffs.slice(0, 6).join(' | ') : ': result, reason, end tick, score, statistics, every event and the state after every step are the same in both')],
+      + (diffs.length ? ' DIFFER in ' + diffs.length + ': ' + diffs.slice(0, 6).join(' | ') : ': result, reason, end tick, score, statistics, every event and the state after every step are the same in both')
+      + '; ' + forks.length + ' Free Patrol game(s) were compared up to their first Archer wave and stopped there' + (forks.length ? ' (' + forks.join(', ') + ')' : '')],
     [!missing.length, 'the events compared held ' + need.filter(k => held[k]).map(k => held[k] + ' ' + k).join(', ') + (missing.length ? '; MISSING: ' + missing.join(', ') : '')]]));
 }
 // Sides. The rules that ask whose a picture or a weapon is (the Duel plan, PR 1) have no user in any mission yet: every picture is the shown one and every heavy
