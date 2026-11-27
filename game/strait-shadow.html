@@ -949,6 +949,14 @@ function bedDepth(b,x,z){
 
 // no damage at all: no torpedo hit, no breach, no collision with the seabed, a ship or a whale (a slow scrape on the seabed does not count)
 const unhurt=st=>st.stats.taken+st.stats.breaches+st.stats.collisions===0;
+// Whose side a thing is on. It is worked out from what the thing already carries and is never stored: 'player' is the boat's own, 'opfor' the other side's,
+// 'neutral' the passing traffic. A torpedo or a noisemaker says whose it is with its number (0: the boat's; any other: the other side's). A ship is neutral by its
+// flag; every other ship is the other side's (the frigates, the high-value ship they guard, and the hulk that is there to be fired on). A helicopter and a sonobuoy
+// carry neither a number nor a flag and are the frigates' own.
+function sideOf(o){ return typeof o.side==='number'?(o.side===0?'player':'opfor'):o.neutral?'neutral':'opfor'; }
+// the ships that hunt the boat: the other side's warships. Today that is every frigate. The high-value ship and the hulk are on that side too but hunt nothing,
+// and a frigate on any other side would not be hostile.
+const hostile=s=>s.kind==='frigate'&&sideOf(s)==='opfor';
 // where an escort belongs: so far ahead of the ship it guards and so far off its starboard side
 const station=(c,e)=>({x:c.x+Math.cos(c.h)*e.ahead+Math.sin(c.h)*e.side,z:c.z-Math.sin(c.h)*e.ahead+Math.cos(c.h)*e.side});
 // Free Patrol: a new group arrives, already told roughly where the boat is. Each group is stronger than the last.
@@ -1103,7 +1111,7 @@ const MISSIONS={
     tick(G){
       const st=G.st, p=st.player; let left=0, own=0;
       for(const s of st.ships) if(s.target&&!s.out) left++;
-      for(const t of st.torps) if(t.side===0) own++;
+      for(const t of st.torps) if(sideOf(t)==='player') own++;
       if(left===0) G.end('win','The frigate is out of action.');
       else if(p.carried===0&&own===0&&st.missiles.length===0) G.end('lose','Mission failed: no weapons left.');
     }},
@@ -1153,7 +1161,7 @@ const MISSIONS={
     tick(G){
       const st=G.st, p=st.player, c=st.ships[0];
       let near=1e9, own=0, late=st.t>=st.timeLimit-1e-6;
-      for(const s of st.ships) if(s.kind==='frigate'&&!s.out) near=Math.min(near,Math.hypot(s.x-p.x,s.z-p.z));
+      for(const s of st.ships) if(hostile(s)&&!s.out) near=Math.min(near,Math.hypot(s.x-p.x,s.z-p.z));
       st.clearD=Math.min(near,99999);
       if(c.out){
         // the clock starts again: so many minutes to get away
@@ -1161,7 +1169,7 @@ const MISSIONS={
         if(near>=V.strait.clear&&st.enemy.level<3) G.end('win','The high-value ship is out of action and you slipped away.');
         else if(late) G.end('lose','Mission failed: you did not get clear in time.');
       }else{
-        for(const t of st.torps) if(t.side===0) own++;
+        for(const t of st.torps) if(sideOf(t)==='player') own++;
         if(p.carried===0&&own===0&&st.missiles.length===0) G.end('lose','Mission failed: no weapons left.');
         else if(late) G.end('lose','Mission failed: the high-value ship got through.');
       }
@@ -1570,18 +1578,31 @@ function createSim(opts){
     for(const k in o) t[k]=o[k];
     st.torps.push(t); return t;
   }
+  // A torpedo's weapon type and its owner are worked out from its numeric side, never stored. Side 0 is the boat's own: a heavy torpedo, on a wire the boat holds.
+  // Any other side is a light torpedo, dropped by a helicopter or fired from a frigate's deck, which nobody guides.
+  function weaponOf(t){ return t.side===0?'heavy':'light'; }
+  // the hull that fired a heavy torpedo and holds its wire; a light torpedo has no such hull
+  function ownerOf(t){ return t.side===0?st.player:null; }
+  // what the holder of the wire is telling a torpedo this step, from -1 to 1 (0: nothing). The boat's hand steers the one torpedo picked for its orders.
+  function wireOrder(t){ const o=ownerOf(t); return t.wire&&o===st.player&&o.wireId===t.id?inp.wire:0; }
+  // What a light torpedo hunts: the submarine of the other side (and that side's noisemakers, see loudest). The frigates' and the helicopters' torpedoes hunt the boat,
+  // and no other submarine is in the game yet.
+  function quarryOf(t){ return st.player; }
   for(let i=0;i<V.tubes;i++){ const w=i<V.load.t?'torpedo':'missile'; st.player.tube.push({s:w,w:w,to:'',q:'',t:0}); }
   tubeCount();
-  const API={st:st,rr:rr,rr2:rr2,rr3:rr3,addBio:addBio,addShip:addShip,addNeutral:addNeutral,addHelo:addHelo,removeShip:removeShip,detect:(kind,x,z)=>detect(kind,x,z),end:end,emit:emit};
+  const API={st:st,rr:rr,rr2:rr2,rr3:rr3,addBio:addBio,addShip:addShip,addNeutral:addNeutral,addHelo:addHelo,removeShip:removeShip,detect:(kind,x,z)=>detect(st.enemy,true,kind,x,z),end:end,emit:emit};
   M.setup(API);
   if(M.traffic) M.traffic(API);
   if(M.endless){ for(let i=0;i<V.bio.max;i++){ st.lifeT=0; lifeAround(); } } else seaLife(API,M.life,M.reach||3300);
   st.player.below=st.player.depth>st.layer;
 
   /* ---------- what the other side knows ---------- */
+  // A picture is what one group of sensors knows of where the boat is. The frigates, their helicopters and their sonobuoys are one group and share one picture,
+  // st.enemy: the one the captain is shown (the threat word, the alert messages, the debrief). Each rule below is told which picture to write (tr) and whether it
+  // is the shown one. Only the shown picture touches the shared statistics or reports anything, so a group with a picture of its own would hunt unannounced.
   // kinds: 'cue' is a bearing only, 'area' a rough position, 'fix' a firm position. (sx,sz) is the sensor that heard it; (tx,tz) is what it heard, the boat unless given.
-  function detect(kind,sx,sz,tx,tz){
-    const tr=st.enemy, p=st.player; let err, lvl, nx, nz;
+  function detect(tr,shown,kind,sx,sz,tx,tz){
+    const p=st.player; let err, lvl, nx, nz;
     if(tx===undefined){ tx=p.x; tz=p.z; }
     if(kind==='cue'){
       tr.cues++; lvl=tr.cues>=4?2:1;
@@ -1595,30 +1616,29 @@ function createSim(opts){
     if(tr.base===0||err<=tr.err||lvl>tr.base){ tr.x=nx; tr.z=nz; tr.err=err; }
     tr.age=0;
     if(lvl>tr.base) tr.base=lvl;
-    if(st.stats.firstAlert<0) st.stats.firstAlert=st.t;
+    if(shown&&st.stats.firstAlert<0) st.stats.firstAlert=st.t;
   }
   // a fixed roll between 0 and 1 for a pair of things: the same answer every time it is asked
   function luck(a,b){ let h=(Math.imul(a,73856093)^Math.imul(b,19349663)^seed)>>>0; h=Math.imul(h^(h>>>15),0x85ebca6b)>>>0; h=Math.imul(h^(h>>>13),0xc2b2ae35)>>>0; return ((h^(h>>>16))>>>0)/4294967296; }
-  function decoyNear(x,z,r){ for(const dc of st.decoys) if(dc.side===0&&Math.hypot(dc.x-x,dc.z-z)<r) return dc; return null; }
+  function decoyNear(x,z,r){ for(const dc of st.decoys) if(sideOf(dc)==='player'&&Math.hypot(dc.x-x,dc.z-z)<r) return dc; return null; }
   // an active sonar echo: with a noisemaker fizzing close to the boat, half the time the echo they plot is the noisemaker
-  function activeFix(sx,sz){
+  function activeFix(tr,shown,sx,sz){
     const p=st.player, dc=decoyNear(p.x,p.z,450);
-    if(dc&&rng()<0.5) detect('fix',sx,sz,dc.x,dc.z); else detect('fix',sx,sz);
+    if(dc&&rng()<0.5) detect(tr,shown,'fix',sx,sz,dc.x,dc.z); else detect(tr,shown,'fix',sx,sz);
   }
   // a noisemaker is the loudest thing around: unless they hold a firm, fresh position, it pulls their attention to itself
-  function lure(dc){
-    const tr=st.enemy;
+  function lure(tr,shown,dc){
     if(tr.base>=3&&tr.fixAge<8) return;
     tr.x=dc.x+rr(-80,80); tr.z=dc.z+rr(-80,80); tr.err=260; tr.age=0;
-    if(tr.base<1){ tr.base=1; tr.cues=Math.max(tr.cues,1); if(st.stats.firstAlert<0) st.stats.firstAlert=st.t; }
+    if(tr.base<1){ tr.base=1; tr.cues=Math.max(tr.cues,1); if(shown&&st.stats.firstAlert<0) st.stats.firstAlert=st.t; }
   }
   // the boat's own sonar hears every active ping near it and can place it
   function heardPing(src,x,z,d){ if(d<V.sonar.heard){ st.heard.push({src:src,x:x,z:z,t:st.t}); if(st.heard.length>24) st.heard.shift(); } }
-  function lightTorpAlive(){ for(const t of st.torps) if(t.side===1) return true; return false; }
+  function lightTorpAlive(){ for(const t of st.torps) if(weaponOf(t)==='light') return true; return false; }
   // only so many enemy torpedoes are in the water at once: one, except late in a Free Patrol
-  function lightFull(){ let n=0; for(const t of st.torps) if(t.side===1) n++; return n>=st.maxLight; }
-  function stepEnemy(dt){
-    const tr=st.enemy;
+  function lightFull(){ let n=0; for(const t of st.torps) if(weaponOf(t)==='light') n++; return n>=st.maxLight; }
+  // every step: a picture goes stale, and its level falls back as it does. The level the captain is shown, and the counters kept of it, follow the shown picture only.
+  function stepEnemy(tr,shown,dt){
     tr.age+=dt; tr.fixAge+=dt; if(tr.base>0) tr.err=Math.min(1500,tr.err+4*dt);
     if(tr.base>=3&&tr.fixAge>18) tr.base=2;
     else if(tr.base===2&&tr.age>80) tr.base=1;
@@ -1626,45 +1646,53 @@ function createSim(opts){
     let attack=false;
     if(tr.base>=3){ attack=lightTorpAlive(); for(const h of st.helos) if(h.task==='attack') attack=true; }
     const lvl=attack?4:tr.base;
-    if(lvl!==tr.level){ emit('alert',{level:lvl,prev:tr.level,name:LEVELS[lvl]}); tr.level=lvl; }
+    if(lvl!==tr.level){ if(shown) emit('alert',{level:lvl,prev:tr.level,name:LEVELS[lvl]}); tr.level=lvl; }
+    if(!shown) return;
     if(lvl>st.stats.maxLevel) st.stats.maxLevel=lvl;
     // time tracked counts only while the position they hold is really the boat's, not a noisemaker's
     if(tr.level>=3&&Math.hypot(tr.x-st.player.x,tr.z-st.player.z)<V.gate.near) st.stats.trackedT+=dt;
   }
+  // What one ship's own sensors can pick up of the boat in that second: its hull sonar, its radar and lookouts, a torpedo coming in, a noisemaker.
+  // d: how far off the boat is. deep: what depth and shrimp noise take off any sonar that only listens (see sense). What it picks up goes into the picture tr;
+  // with a picture that is not the shown one, nothing is reported.
+  function shipSense(s,tr,shown,d,deep){
+    const p=st.player, S=V.sonar;
+    // hull sonar listening: deaf astern, deafened by the ship's own speed, and much worse at hearing a boat below the layer
+    const astern=Math.abs(wrap(brg(s.x,s.z,p.x,p.z)-s.h))>PI-0.6, hear=clamp(1.15-0.065*s.speed,0.3,1);
+    const R=S.hull*Math.sqrt(Math.min(p.noise,2))*hear*(astern?0.35:1)*deep*(p.below?V.layer.hull:1)*D.det;
+    if(d<R){ const x=d/R; if(rng()<0.5*Math.pow(1-x,1.2)) detect(tr,shown,x<0.15?'fix':x<0.4?'area':'cue',s.x,s.z); }
+    // radar and lookouts see a boat on the surface, and now and then a mast
+    if(p.depth<V.surfaced&&d<7000&&rng()<0.2*D.det) detect(tr,shown,'fix',s.x,s.z);
+    else if(p.mast&&d<V.mast.ship&&rng()<(0.006+0.07*p.expo)*D.det){ detect(tr,shown,p.expo>0.6?'fix':'area',s.x,s.z); if(shown) emit('mastSeen',{by:'ship'}); }
+    // a torpedo coming in is loud, and the line it comes down points back toward whoever fired it
+    if(!s.threat) for(const t of st.torps){
+      if(sideOf(t)!==sideOf(s)&&Math.hypot(t.x-s.x,t.z-s.z)<V.torp.heard*(t.deep&&t.depth>=V.attack.deep.quiet?V.attack.deep.hear:1)&&rng()<0.4){ s.threat=t.id; detect(tr,shown,'cue',s.x,s.z,2*t.x-s.x,2*t.z-s.z); if(shown) emit('shipEvade',{ship:s.id}); break; }
+    }
+    // so is a noisemaker
+    for(const dc of st.decoys){ if(sideOf(dc)!==sideOf(s)&&Math.hypot(dc.x-s.x,dc.z-s.z)<S.hull*0.6*hear*D.det&&rng()<0.25) lure(tr,shown,dc); }
+  }
   // once a second: every enemy sensor gets a chance to pick up the boat
   function sense(){
     // shrimp noise around the boat hides it from everything that only listens (a ping still finds it)
-    const p=st.player, S=V.sonar, deep=(1-0.35*clamp((p.depth-20)/130,0,1))*(1-V.shrimp.cut*p.mask);
+    const p=st.player, tr=st.enemy, deep=(1-0.35*clamp((p.depth-20)/130,0,1))*(1-V.shrimp.cut*p.mask);
     for(const s of st.ships){
       const d=Math.hypot(p.x-s.x,p.z-s.z)||1;
       // the raised mast shows the boat every ship in sight, whatever state it is in
       if(p.mast&&p.mastT>=1.5&&d<V.mast.see){ s.seenT=st.t+2.5; if(!s.sighted){ s.sighted=true; emit('sighted',{ship:s.id,kind:s.kind,x:s.x,z:s.z}); } }
-      if(s.out||s.kind!=='frigate') continue;
-      // hull sonar listening: deaf astern, deafened by the ship's own speed, and much worse at hearing a boat below the layer
-      const astern=Math.abs(wrap(brg(s.x,s.z,p.x,p.z)-s.h))>PI-0.6, hear=clamp(1.15-0.065*s.speed,0.3,1);
-      const R=S.hull*Math.sqrt(Math.min(p.noise,2))*hear*(astern?0.35:1)*deep*(p.below?V.layer.hull:1)*D.det;
-      if(d<R){ const x=d/R; if(rng()<0.5*Math.pow(1-x,1.2)) detect(x<0.15?'fix':x<0.4?'area':'cue',s.x,s.z); }
-      // radar and lookouts see a boat on the surface, and now and then a mast
-      if(p.depth<V.surfaced&&d<7000&&rng()<0.2*D.det) detect('fix',s.x,s.z);
-      else if(p.mast&&d<V.mast.ship&&rng()<(0.006+0.07*p.expo)*D.det){ detect(p.expo>0.6?'fix':'area',s.x,s.z); emit('mastSeen',{by:'ship'}); }
-      // a torpedo coming in is loud, and the line it comes down points back toward whoever fired it
-      if(!s.threat) for(const t of st.torps){
-        if(t.side===0&&Math.hypot(t.x-s.x,t.z-s.z)<V.torp.heard*(t.deep&&t.depth>=V.attack.deep.quiet?V.attack.deep.hear:1)&&rng()<0.4){ s.threat=t.id; detect('cue',s.x,s.z,2*t.x-s.x,2*t.z-s.z); emit('shipEvade',{ship:s.id}); break; }
-      }
-      // so is a noisemaker
-      for(const dc of st.decoys){ if(dc.side===0&&Math.hypot(dc.x-s.x,dc.z-s.z)<S.hull*0.6*hear*D.det&&rng()<0.25) lure(dc); }
+      if(s.out||!hostile(s)) continue;
+      shipSense(s,tr,true,d,deep);
     }
     for(const h of st.helos){
       if(h.phase==='deck'||h.phase==='spinup'||h.phase==='spindown') continue;
       const d=Math.hypot(p.x-h.x,p.z-h.z);
-      if(p.depth<V.surfaced&&d<3500&&rng()<0.3*D.det) detect('fix',h.x,h.z);
-      else if(p.mast&&d<V.mast.helo&&rng()<(0.008+0.1*p.expo)*D.det){ detect('fix',h.x,h.z); emit('mastSeen',{by:'helo'}); }
+      if(p.depth<V.surfaced&&d<3500&&rng()<0.3*D.det) detect(tr,true,'fix',h.x,h.z);
+      else if(p.mast&&d<V.mast.helo&&rng()<(0.008+0.1*p.expo)*D.det){ detect(tr,true,'fix',h.x,h.z); emit('mastSeen',{by:'helo'}); }
     }
     // sonobuoys listen near the surface: short range, worse across the layer, but a boat passing very close is heard however quiet it is
     for(const b of st.buoys){
       const d=Math.hypot(p.x-b.x,p.z-b.z)||1, R=V.buoy.range*Math.sqrt(Math.min(p.noise,2))*deep*(p.below?V.layer.buoy:1)*D.det;
-      if(d<R&&rng()<0.4*Math.pow(1-d/R,1.2)) detect(d<0.35*R?'area':'cue',b.x,b.z);
-      else if(d<V.buoy.close&&rng()<0.08*(p.below?0.5:1)*D.det) detect('cue',b.x,b.z);
+      if(d<R&&rng()<0.4*Math.pow(1-d/R,1.2)) detect(tr,true,d<0.35*R?'area':'cue',b.x,b.z);
+      else if(d<V.buoy.close&&rng()<0.08*(p.below?0.5:1)*D.det) detect(tr,true,'cue',b.x,b.z);
     }
   }
 
@@ -1737,7 +1765,7 @@ function createSim(opts){
         dm.cd=K.ship.cd; st.stats.collisions++; dm.fin=true; p.speed*=0.5;
         emit('collide',{with:'ship',sev:K.ship.sev,ship:s.id,kind:s.kind,neutral:!!s.neutral});
         breach(1,K.ship.breach,'ship'); shock(K.ship.sev,'ship');
-        if(s.neutral) st.stats.incidents++; else if(s.kind==='frigate'&&!s.out) detect('fix',s.x,s.z);
+        if(s.neutral) st.stats.incidents++; else if(hostile(s)&&!s.out) detect(st.enemy,true,'fix',s.x,s.z);
       }
     }
     if(dm.bioCd<=0) for(const b of st.bios){
@@ -1827,7 +1855,8 @@ function createSim(opts){
     let full=true; for(const s of S) if(s.smoke<0.98) full=false;
     if(full){ dm.smokeT+=dt; if(dm.smokeT>=K.fire.allT) lose('fire and smoke filled every compartment.'); } else dm.smokeT=0;
   }
-  function cutWire(t,why){ if(!t.wire) return; t.wire=false; st.stats.wireCuts++; emit('wireCut',{id:t.id,why:why,sel:st.player.wireId===t.id}); }
+  // a wire parts. Only the boat's own wires are counted and reported.
+  function cutWire(t,why){ if(!t.wire) return; t.wire=false; if(ownerOf(t)!==st.player) return; st.stats.wireCuts++; emit('wireCut',{id:t.id,why:why,sel:st.player.wireId===t.id}); }
   /* ---------- Stage J: the anti-ship missile ---------- */
   // The launch gate: every check a missile launch must pass, in the order they are reported. It reads the track's solution and the boat, never the ship.
   // With every check passed it also gives the aim point: where the solution puts the ship when the missile gets there, allowing for the capsule's rise and the boost.
@@ -1892,8 +1921,8 @@ function createSim(opts){
     const s=st.stats; if(why==='sam') s.mSam++; else if(why==='gun') s.mGun++; else if(why==='decoyed') s.mDecoyed++; else if(why==='missed') s.mMissed++;
     emit('mEnd',{id:m.id,why:why,jam:m.jam,x:m.x,z:m.z,alt:m.alt});
   }
-  // jamming: a frigate that is alert (level 2 or higher) jams every missile within its reach
-  function jammed(m){ if(st.enemy.level<2) return false; for(const s of st.ships) if(s.kind==='frigate'&&!s.out&&Math.hypot(s.x-m.x,s.z-m.z)<V.missile.jam.range) return true; return false; }
+  // jamming: a hostile frigate that is alert (level 2 or higher) jams every missile within its reach
+  function jammed(m){ if(st.enemy.level<2) return false; for(const s of st.ships) if(hostile(s)&&!s.out&&Math.hypot(s.x-m.x,s.z-m.z)<V.missile.jam.range) return true; return false; }
   function inCone(m,x,z,r){ return Math.hypot(x-m.x,z-m.z)<=r&&Math.abs(wrap(brg(m.x,m.z,x,z)-m.h))<=V.missile.cone; }
   function cloudById(i){ for(const c of st.clouds) if(c.id===i) return c; return null; }
   // Seeker on: of the ships in its cone (any kind, unless out of action) and the chaff clouds there, it takes the one whose centre lies nearest its aim point. A jammed seeker sees less far.
@@ -2095,8 +2124,8 @@ function createSim(opts){
       const d=st.datums[k]; if(st.t<d.t) continue;
       st.datums.splice(k,1);
       let f=null, fd=1e12;
-      for(const s of st.ships){ if(s.kind!=='frigate'||s.out) continue; const q=Math.hypot(s.x-d.x,s.z-d.z); if(q<fd){ fd=q; f=s; } }
-      if(f){ detect('area',f.x,f.z,d.x,d.z); emit('datum',{x:d.x,z:d.z,ship:f.id}); }
+      for(const s of st.ships){ if(!hostile(s)||s.out) continue; const q=Math.hypot(s.x-d.x,s.z-d.z); if(q<fd){ fd=q; f=s; } }
+      if(f){ detect(st.enemy,true,'area',f.x,f.z,d.x,d.z); emit('datum',{x:d.x,z:d.z,ship:f.id}); }
     }
   }
   /* ---------- Stage J: the tubes, the rack and the one handling team ---------- */
@@ -2207,7 +2236,7 @@ function createSim(opts){
     // a hard turn, or more than Half speed, held for a couple of seconds snaps every guidance wire
     const strain=p.speed>V.wire.speed?'speed':Math.abs(p.rudder)>V.wire.rudder&&p.speed>3?'turn':'';
     if(strain) p.hardT+=dt; else p.hardT=Math.max(0,p.hardT-2*dt);
-    if(p.hardT>V.wire.hold){ p.hardT=0; for(const t of st.torps) if(t.side===0) cutWire(t,strain); }
+    if(p.hardT>V.wire.hold){ p.hardT=0; for(const t of st.torps) if(ownerOf(t)===p) cutWire(t,strain); }
     // Stage J: with Missile chosen the press goes through the launch gate, and a refusal says why. With Torpedo chosen and nothing but missiles loaded, that is said too.
     if(inp.fire&&!pFire&&inp.weapon===1){ const g=missileGate(inp.target,inp.route); if(g.why) emit('refuse',{what:'missile',why:g.why}); else launchMissile(g); }
     else if(inp.fire&&!pFire&&p.readyT===0&&p.readyM>0) emit('refuse',{what:'fire',why:'onlyM'});
@@ -2221,10 +2250,10 @@ function createSim(opts){
       emit('fire',{id:t.id,x:t.x,z:t.z,depth:t.depth,aimed:q!==null,target:q?k.id:0,launch:inp.launch,enable:plan.enable,beyond:plan.beyond,close:plan.close});
       // the launch itself can be heard: the ship gets a rough position and turns away for a while
       for(const sh of st.ships){
-        if(sh.out||sh.kind!=='frigate') continue;
+        if(sh.out||!hostile(sh)) continue;
         const d=Math.hypot(p.x-sh.x,p.z-sh.z);
         if(d<(inp.launch===0?K.swim.heard:T.launch)*clamp(1.15-0.065*sh.speed,0.3,1)*D.det&&rng()<0.85){      // a swim-out launch carries less far
-          detect('area',sh.x,sh.z);
+          detect(st.enemy,true,'area',sh.x,sh.z);
           if(sh.fleeT<=0){ sh.fleeT=35; sh.fleeH=brg(p.x,p.z,sh.x,sh.z); }
         }
       }
@@ -2238,9 +2267,9 @@ function createSim(opts){
       for(const sh of st.ships){
         const d=Math.hypot(p.x-sh.x,p.z-sh.z);
         if(d<6000){ sh.seenT=st.t+V.pingHold; logFix(trackFor(sh),'ping',d,brg(p.x,p.z,sh.x,sh.z),0,rng2,V.pingHold,!sh.out); }
-        if(!sh.out&&sh.kind==='frigate'&&d<8000&&!heard) heard=sh;
+        if(!sh.out&&hostile(sh)&&d<8000&&!heard) heard=sh;
       }
-      if(heard) detect('fix',heard.x,heard.z);
+      if(heard) detect(st.enemy,true,'fix',heard.x,heard.z);
       for(const b of st.bios){ const d=Math.hypot(p.x-b.x,p.z-b.z); if(d<V.bio.echo){ b.seenT=st.t+V.pingHold; logFix(bioTrack(b),'ping',d,brg(p.x,p.z,b.x,b.z),0,rng3,V.pingHold,true); } }
       listen();
     }
@@ -2362,7 +2391,7 @@ function createSim(opts){
       if(!k.out) solveK(k);
     }
     for(const t of st.torps){
-      if(t.side!==1||t.phase==='chute') continue;
+      if(sideOf(t)==='player'||t.phase==='chute') continue;
       const d=Math.hypot(t.x-p.x,t.z-p.z)||1;
       if(d<2500) C.push({kind:'torp',id:t.id,brg:brg(p.x,p.z,t.x,t.z),sig:1e6/(d*d),range:0});
     }
@@ -2425,9 +2454,9 @@ function createSim(opts){
     if(live){ s.hp=Math.max(0,s.hp-pts); st.stats.hits++; }
     emit('hit',Object.assign({id:t.id,ship:s.id,kind:s.kind,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more));
     if(live&&s.hp<=0){ s.out=true; s.outT=0; s.threat=0; if(s.kind==='frigate') st.stats.out++; emit('shipOut',{ship:s.id,kind:s.kind,x:s.x,z:s.z}); }
-    else if(live&&s.kind==='frigate'&&!msl) detect('area',s.x,s.z);      // a missile says nothing new about where the boat is: its launch already gave them a place to search
+    else if(live&&hostile(s)&&!msl) detect(st.enemy,true,'area',s.x,s.z);      // a missile says nothing new about where the boat is: its launch already gave them a place to search
     // a hit on the ship they guard tells the escorts which way the torpedo came from
-    if(live&&s.kind==='cargo'&&!msl) for(const f of st.ships) if(f.kind==='frigate'&&!f.out){ detect('cue',f.x,f.z,s.x-Math.cos(t.h)*1500,s.z+Math.sin(t.h)*1500); break; }
+    if(live&&s.kind==='cargo'&&!msl) for(const f of st.ships) if(hostile(f)&&!f.out){ detect(st.enemy,true,'cue',f.x,f.z,s.x-Math.cos(t.h)*1500,s.z+Math.sin(t.h)*1500); break; }
   }
   // a torpedo close by: the pod scatters, away from it, and falls silent for a while
   function scare(b,t,secs){
@@ -2445,10 +2474,10 @@ function createSim(opts){
   // the weapon the wire commands go to: the one picked, while its wire lasts; failing that the newest still on its wire; failing that none. Checked every step.
   function pickWeapon(){
     const p=st.player; let sel=0, newest=0;
-    for(const t of st.torps) if(t.side===0&&t.wire){ newest=t.id; if(t.id===p.wireId) sel=t.id; }
+    for(const t of st.torps) if(ownerOf(t)===p&&t.wire){ newest=t.id; if(t.id===p.wireId) sel=t.id; }
     p.wireId=sel||newest;
   }
-  function ownWeapon(){ const t=torpById(st.player.wireId); return t&&t.side===0&&t.wire?t:null; }
+  function ownWeapon(){ const t=torpById(st.player.wireId); return t&&ownerOf(t)===st.player&&t.wire?t:null; }
   // the search pattern starts about the course the torpedo is on. pattern false: no pattern, it just runs on with its seeker listening.
   function startSearch(t,pattern,now){
     t.phase='search'; t.base=t.h; t.sw=1; t.patOn=pattern; t.circ=pattern&&now&&t.pat===2?TAU:0;
@@ -2462,7 +2491,7 @@ function createSim(opts){
     if(c==='mupdate'){ updateMissiles(); return; }
     if(c==='next'||c==='weapon'){
       // which torpedo the wire commands go to
-      const w=[]; for(const t of st.torps) if(t.side===0&&t.wire) w.push(t.id);
+      const w=[]; for(const t of st.torps) if(ownerOf(t)===p&&t.wire) w.push(t.id);
       const id=c==='weapon'?(w.indexOf(arg)>=0?arg:0):w.length?w[(w.indexOf(p.wireId)+1)%w.length]:0;
       if(!id){ emit('refuse',{what:c,why:'wire'}); return; }
       p.wireId=id; emit('weapon',{id:id}); return;
@@ -2520,18 +2549,20 @@ function createSim(opts){
     };
     if(on){
       for(const s of st.ships) if(!s.out) add(s.id,s.x,s.z,s.speed>0.5,s.noise>0);
-      for(const dc of st.decoys) if(dc.side===1) add(dc.id,dc.x,dc.z,false,false);
+      for(const dc of st.decoys) if(sideOf(dc)!==sideOf(t)) add(dc.id,dc.x,dc.z,false,false);
       for(const b of st.bios) if(b.kind!=='fish') add(b.id,b.x,b.z,true,false);
     }
     st.seeker={id:t.id,phase:t.phase,on:on,run:t.run,armed:t.run>=V.attack.arm,lock:lock,echoes:e};
   }
-  // The boat's own heavy torpedo. It leaves on the gyro course fire control set (or along the bow), runs out to its enable distance, then searches in its pattern
+  // A heavy torpedo: the boat's own weapon. It leaves on the gyro course fire control set (or along the bow), runs out to its enable distance, then searches in its pattern
   // and homes on the nearest ship ahead of it. While its wire lasts it can be steered, sent to another contact, or told to drop what it has locked on to.
-  function stepOwnTorp(t,dt){
-    const T=V.torp, K=V.attack, p=st.player;
+  // Nothing here asks whose it is except through its owner (ownerOf): the wire runs to the owner and carries the owner's orders (wireOrder), any ship but the owner
+  // is a target, and the noisemakers that fool it are the other side's.
+  function stepHeavyTorp(t,dt){
+    const T=V.torp, K=V.attack, own=ownerOf(t);
     // a swim-out launch works up to its run speed slowly; an impulse launch is there in a moment
     t.speed=Math.min(T.speed,t.speed+(t.launch===0?(T.speed-K.swim.speed)/K.swim.ramp:K.impulse.accel)*dt); t.life-=dt; t.run+=t.speed*dt;
-    if(t.wire&&Math.hypot(t.x-p.x,t.z-p.z)>V.wire.len) cutWire(t,'range');
+    if(t.wire&&Math.hypot(t.x-own.x,t.z-own.z)>V.wire.len) cutWire(t,'range');
     let tg=t.target?shipById(t.target):null, bait=null, pod=null;
     if(tg&&(tg.out||Math.hypot(tg.x-t.x,tg.z-t.z)>T.seek*1.5)){ tg=null; t.target=0; }
     if(t.pod){ for(const b of st.bios) if(b.id===t.pod) pod=b; if(!pod||Math.hypot(pod.x-t.x,pod.z-t.z)>V.bio.seek*1.6){ pod=null; t.pod=0; } }
@@ -2550,26 +2581,26 @@ function createSim(opts){
         // the nearest ship ahead (after a retarget, the one nearest the predicted point), leaving out any it was told to reject or was sent away from
         let best=1e9;
         for(const s of st.ships){
-          if(s.out||s.id===t.from||t.rej.indexOf(s.id)>=0) continue;
+          if(s===own||s.out||s.id===t.from||t.rej.indexOf(s.id)>=0) continue;
           const d=Math.hypot(s.x-t.x,s.z-t.z); if(d>=T.seek||Math.abs(wrap(brg(t.x,t.z,s.x,s.z)-t.h))>=T.cone) continue;
           const m=t.pref?Math.hypot(s.x-t.tx,s.z-t.tz):d; if(m<best){ best=m; tg=s; }
         }
-        if(tg){ t.target=tg.id; t.pod=0; pod=null; t.phase='home'; t.from=0; t.pref=false; t.goto=false; emit('homing',{id:t.id,side:0,kind:tg.ident>=1?tg.kind:''}); }
+        if(tg){ t.target=tg.id; t.pod=0; pod=null; t.phase='home'; t.from=0; t.pref=false; t.goto=false; emit('homing',{id:t.id,side:t.side,kind:tg.ident>=1?tg.kind:''}); }
         // with no ship in front of it the seeker can take a pod of whales or dolphins for one, close to
         else if(!pod){
           let near=V.bio.seek;
           for(const b of st.bios){ if(b.kind==='fish'||b.id===t.from||t.rej.indexOf(b.id)>=0) continue; const d=Math.hypot(b.x-t.x,b.z-t.z); if(d<near&&Math.abs(wrap(brg(t.x,t.z,b.x,b.z)-t.h))<T.cone){ near=d; pod=b; } }
-          if(pod){ t.pod=pod.id; t.phase='home'; t.goto=false; emit('homing',{id:t.id,side:0,kind:pod.known?'bio':''}); }
+          if(pod){ t.pod=pod.id; t.phase='home'; t.goto=false; emit('homing',{id:t.id,side:t.side,kind:pod.known?'bio':''}); }
         }
       }
       // the ship's noisemaker: a torpedo off its wire usually goes for it, one still on the wire is told which echo is the ship. Each noisemaker gets one try.
       for(const dc of st.decoys){
-        if(dc.side!==1||t.seen.indexOf(dc.id)>=0||Math.hypot(dc.x-t.x,dc.z-t.z)>T.baitR) continue;
+        if(sideOf(dc)===sideOf(t)||t.seen.indexOf(dc.id)>=0||Math.hypot(dc.x-t.x,dc.z-t.z)>T.baitR) continue;
         t.seen.push(dc.id);
         if(rng()<(t.wire?T.foolWire:T.fool)){ bait=dc; t.bait=dc.id; t.target=0; t.pod=0; pod=null; t.phase='bait'; tg=null; t.goto=false; emit('fooled',{id:t.id,wire:t.wire}); break; }
       }
     }
-    const steer=t.wire&&p.wireId===t.id&&inp.wire!==0&&(t.phase==='run'||t.phase==='search');
+    const order=wireOrder(t), steer=order!==0&&(t.phase==='run'||t.phase==='search');
     if(bait) t.h=turnTo(t.h,brg(t.x,t.z,bait.x,bait.z),T.turn*dt);      // it circles the noisemaker until that dies
     else if(tg){
       let ax=tg.x-t.x, az=tg.z-t.z; const tt=Math.hypot(ax,az)/(t.speed+1);
@@ -2577,7 +2608,7 @@ function createSim(opts){
       t.h=turnTo(t.h,Math.atan2(-az,ax),T.turn*dt);
     }else if(pod) t.h=turnTo(t.h,brg(t.x,t.z,pod.x,pod.z),T.turn*dt);
     else if(t.phase==='transit') t.h=turnTo(t.h,brg(t.x,t.z,t.tx,t.tz),T.turn*dt);
-    else if(steer){ const a=inp.wire*V.wire.turn*dt; t.h=wrap(t.h-a); t.base=wrap(t.base-a); t.aimed=false; t.goto=false; t.circ=0; }      // steered by hand: the gyro course and any turn in hand are dropped
+    else if(steer){ const a=order*V.wire.turn*dt; t.h=wrap(t.h-a); t.base=wrap(t.base-a); t.aimed=false; t.goto=false; t.circ=0; }      // steered by hand: the gyro course and any turn in hand are dropped
     else if(t.phase==='run'){ if(t.aimed) t.h=turnTo(t.h,t.gyro,T.turn*dt); }
     else if(t.goto){
       // after a retarget it heads for the predicted point as it searches, and starts its pattern there
@@ -2594,6 +2625,7 @@ function createSim(opts){
     t.x+=Math.cos(t.h)*t.speed*dt; t.z-=Math.sin(t.h)*t.speed*dt;
     const armed=t.run>=K.arm;      // before it has run far enough to arm, whatever it meets it passes harmlessly
     if(armed) for(const s of st.ships){
+      if(s===own) continue;
       const dx=t.x-s.x, dz=t.z-s.z, c=Math.cos(s.h), sn=Math.sin(s.h);
       if(Math.abs(dx*c-dz*sn)<s.hl&&Math.abs(dx*sn+dz*c)<s.hb&&t.depth<13){ hitShip(s,t); return false; }
     }
@@ -2603,24 +2635,24 @@ function createSim(opts){
       if(armed&&b.kind!=='fish'&&d<V.bio.fuse&&Math.abs(b.depth-t.depth)<V.bio.fuse){ hitBio(b,t); return false; }
       if(b.scareT<20) scare(b,t,40);
     }
-    if(t.life<=0){ emit('torpEnd',{id:t.id,side:0,x:t.x,z:t.z,depth:t.depth}); return false; }
+    if(t.life<=0){ emit('torpEnd',{id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}); return false; }
     return true;
   }
-  // what a light torpedo can hear: the boat and any noisemaker. It goes for the loudest, gives the one it already follows the benefit of the doubt,
-  // and keeps circling one it is right on top of.
+  // what a light torpedo can hear: the submarine it hunts (quarryOf: the boat) and any noisemaker of that side. It goes for the loudest, gives the one it already
+  // follows the benefit of the doubt, and keeps circling one it is right on top of. ref 0 is the submarine; a noisemaker's ref is its id.
   function loudest(t){
-    const p=st.player, hold=t.phase==='home'; let best=null, bs=0;
+    const q=quarryOf(t), hold=t.phase==='home'; let best=null, bs=0;
     const test=(ref,x,z,depth,noise)=>{
       const dx=x-t.x, dz=z-t.z, d3=Math.hypot(dx,dz,depth-t.depth)||1, R=(110+520*Math.min(noise,1.3))*D.det, off=Math.abs(wrap(Math.atan2(-dz,dx)-t.h)), mine=hold&&t.lock===ref;
       if(d3<R*(mine?1.35:1)&&(off<(mine?1.9:1.3)||(mine&&ref!==0&&d3<60)||(ref===0&&d3<st.keen))){ const sg=R/d3*(mine?1.25:1); if(sg>bs){ bs=sg; best={ref:ref,x:x,z:z,depth:depth}; } }
     };
-    test(0,p.x,p.z,p.depth,p.noise);      // from Hunted on, a torpedo also finds a boat that is very close whichever way it points (st.keen)
-    for(const dc of st.decoys) if(dc.side===0&&luck(t.id,dc.id)<V.decoyWorks) test(dc.id,dc.x,dc.z,dc.depth,V.decoyNoise);      // now and then a torpedo is not taken in
+    test(0,q.x,q.z,q.depth,q.noise);      // from Hunted on, a torpedo also finds a boat that is very close whichever way it points (st.keen)
+    for(const dc of st.decoys) if(sideOf(dc)!==sideOf(t)&&luck(t.id,dc.id)<V.decoyWorks) test(dc.id,dc.x,dc.z,dc.depth,V.decoyNoise);      // now and then a torpedo is not taken in
     return best;
   }
   // the helicopter's light torpedo: parachute, splash, a widening spiral search, then it homes on what it can hear
   function stepLightTorp(t,dt){
-    const L=V.light, p=st.player;
+    const L=V.light, q=quarryOf(t);
     if(t.phase==='chute'){
       t.st+=dt; t.vy-=9.8*dt; if(t.st>0.5) t.vy+=(-7-t.vy)*(1-Math.exp(-dt*3)); t.alt+=t.vy*dt;
       if(t.alt<=0){ t.alt=0; t.depth=1; t.phase='search'; t.st=0; t.speed=5; emit('splash',{id:t.id,x:t.x,z:t.z}); }
@@ -2637,22 +2669,22 @@ function createSim(opts){
         if(Math.hypot(t.tx-t.x,t.tz-t.z)<90){ t.phase='search'; t.st=0; }
       }
       t.run=Math.max(t.run,22)+L.sink*dt; wantD=t.run;
-      if(tg){ t.phase='home'; t.lock=tg.ref; emit('homing',{id:t.id,side:1,decoy:tg.ref!==0}); }
+      if(tg){ t.phase='home'; t.lock=tg.ref; emit('homing',{id:t.id,side:t.side,decoy:tg.ref!==0}); }
     }else if(!tg){
       emit('lostLock',{id:t.id,decoy:t.lock!==0}); t.phase='search'; t.st=6; t.run=t.depth; t.lock=0;
     }else{
-      if(tg.ref!==t.lock){ t.lock=tg.ref; emit('homing',{id:t.id,side:1,decoy:tg.ref!==0}); }
-      const dx=tg.x-t.x, dz=tg.z-t.z, tt=Math.hypot(dx,dz)/(t.speed+1), lead=tg.ref===0?p.speed*tt:0;
-      t.h=turnTo(t.h,Math.atan2(-(dz-Math.sin(p.h)*lead),dx+Math.cos(p.h)*lead),L.turn*dt); wantD=tg.depth;
+      if(tg.ref!==t.lock){ t.lock=tg.ref; emit('homing',{id:t.id,side:t.side,decoy:tg.ref!==0}); }
+      const dx=tg.x-t.x, dz=tg.z-t.z, tt=Math.hypot(dx,dz)/(t.speed+1), lead=tg.ref===0?q.speed*tt:0;
+      t.h=turnTo(t.h,Math.atan2(-(dz-Math.sin(q.h)*lead),dx+Math.cos(q.h)*lead),L.turn*dt); wantD=tg.depth;
     }
     t.depth=clamp(t.depth+clamp(wantD-t.depth,-L.climb*dt,L.climb*dt),1,Math.max(2,bedDepth(st.bed,t.x,t.z)-2));
     t.x+=Math.cos(t.h)*t.speed*dt; t.z-=Math.sin(t.h)*t.speed*dt;
-    const rx=t.x-p.x, rz=t.z-p.z, c=Math.cos(p.h), sn=Math.sin(p.h);
-    if(Math.abs(rx*c-rz*sn)<36&&Math.hypot(rx*sn+rz*c,t.depth-p.depth)<5){
+    const rx=t.x-q.x, rz=t.z-q.z, c=Math.cos(q.h), sn=Math.sin(q.h);
+    if(Math.abs(rx*c-rz*sn)<36&&Math.hypot(rx*sn+rz*c,t.depth-q.depth)<5){
       const sec=secAt(rx*c-rz*sn); st.stats.taken++;
       emit('playerHit',{id:t.id,x:t.x,z:t.z,depth:t.depth,sec:sec,sev:K.hit.sev}); torpHit(sec); return false;
     }
-    if(t.life<=0){ emit('torpEnd',{id:t.id,side:1,x:t.x,z:t.z,depth:t.depth}); return false; }
+    if(t.life<=0){ emit('torpEnd',{id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}); return false; }
     return true;
   }
 
@@ -2706,7 +2738,7 @@ function createSim(opts){
       s.speed+=(wantV-s.speed)*(1-Math.exp(-dt*0.25));
       // a noisemaker thrown well clear, off one quarter, when a torpedo is close
       if(s.cmCd>0) s.cmCd-=dt;
-      let close=false; for(const t of st.torps) if(t.side===0&&Math.hypot(t.x-s.x,t.z-s.z)<S.decoyAt) close=true;
+      let close=false; for(const t of st.torps) if(sideOf(t)!==sideOf(s)&&Math.hypot(t.x-s.x,t.z-s.z)<S.decoyAt) close=true;
       if(th&&close&&s.cm>0&&s.cmCd<=0){
         const a=s.h+(rng()<0.5?2.2:-2.2), dc={id:st.nextId++,side:1,x:s.x+Math.cos(a)*S.decoyOut,z:s.z-Math.sin(a)*S.decoyOut,depth:5,life:S.decoyLife};
         st.decoys.push(dc); s.cm--; s.cmCd=15; emit('shipDecoy',{ship:s.id,id:dc.id,x:dc.x,z:dc.z});
@@ -2726,7 +2758,7 @@ function createSim(opts){
           s.pingT=tr.base>=3?6:tr.base===2?9:12;
           const d=Math.hypot(p.x-s.x,p.z-s.z), Ra=(tr.base>=2?V.sonar.active:V.sonar.guard)*(p.below?V.layer.active:1)*D.det;
           emit('ping',{src:'ship',id:s.id,x:s.x,z:s.z,d:d}); heardPing('ship',s.x,s.z,d);
-          if(d<Ra&&rng()<0.85*(1-d*d/(Ra*Ra))*(1-0.5*clamp((p.depth-30)/120,0,1))) activeFix(s.x,s.z);
+          if(d<Ra&&rng()<0.85*(1-d*d/(Ra*Ra))*(1-0.5*clamp((p.depth-30)/120,0,1))) activeFix(tr,true,s.x,s.z);
         }
       }
     }
@@ -2810,12 +2842,12 @@ function createSim(opts){
     }
   }
   // the dipping sonar hangs below the layer, so the layer hides nothing from it
-  function dipPing(h){
+  function dipPing(h,tr,shown){
     const p=st.player, S=V.sonar, d=Math.hypot(p.x-h.x,p.z-h.z);
     emit('ping',{src:'dip',id:h.id,x:h.x,z:h.z,d:d}); heardPing('dip',h.x,h.z,d);
     const Ra=S.dip*D.det, Rp=S.dipPassive*Math.sqrt(Math.min(p.noise,2))*(1-0.35*clamp((p.depth-20)/130,0,1))*(1-V.shrimp.cut*p.mask)*D.det;
-    if(d<Ra&&rng()<0.9*(1-d*d/(Ra*Ra))*(1-0.5*clamp((p.depth-30)/120,0,1))){ h.fix=true; activeFix(h.x,h.z); }
-    else if(d<Rp&&rng()<0.6*(1-d/Rp)){ if(d<Rp*0.4){ h.fix=true; detect('fix',h.x,h.z); } else detect('area',h.x,h.z); }
+    if(d<Ra&&rng()<0.9*(1-d*d/(Ra*Ra))*(1-0.5*clamp((p.depth-30)/120,0,1))){ h.fix=true; activeFix(tr,shown,h.x,h.z); }
+    else if(d<Rp&&rng()<0.6*(1-d/Rp)){ if(d<Rp*0.4){ h.fix=true; detect(tr,shown,'fix',h.x,h.z); } else detect(tr,shown,'area',h.x,h.z); }
   }
   function dropBuoy(h){
     const p=st.player, b={id:st.nextId++,x:h.x,z:h.z,life:V.buoy.life,known:Math.hypot(p.x-h.x,p.z-h.z)<2500};
@@ -2853,7 +2885,7 @@ function createSim(opts){
         break;
       case 'dip':
         offShips(h); fly(h,h.tx,h.tz,H.alt,dt); h.pingT-=dt;
-        if(h.pingT<=0){ h.pingT=4; dipPing(h); }
+        if(h.pingT<=0){ h.pingT=4; dipPing(h,tr,true); }
         if((h.fix&&canAttack(h))||h.pt>=H.dwell||mustGoHome(h)){ h.phase='raise'; h.pt=0; if(!h.fix&&(++h.dips)%2===0) dropBuoy(h); }
         break;
       case 'raise': offShips(h); fly(h,h.tx,h.tz,H.alt,dt); h.cable=Math.max(0,h.cable-H.winch*dt); if(h.cable<=0) nextTask(h); break;
@@ -2911,7 +2943,7 @@ function createSim(opts){
     for(const h of st.helos) stepHelo(h,dt);
     for(const b of st.bios) stepBio(b,dt);
     pickWeapon();
-    for(let k=st.torps.length-1;k>=0;k--){ const t=st.torps[k]; if(!(t.side===0?stepOwnTorp(t,dt):stepLightTorp(t,dt))) st.torps.splice(k,1); }
+    for(let k=st.torps.length-1;k>=0;k--){ const t=st.torps[k]; if(!(weaponOf(t)==='heavy'?stepHeavyTorp(t,dt):stepLightTorp(t,dt))) st.torps.splice(k,1); }
     pickWeapon(); seekerView();
     for(let k=st.missiles.length-1;k>=0;k--){ const m=st.missiles[k]; if(m.done||!stepMissile(m,dt)) st.missiles.splice(k,1); }
     stepDefence(dt); stepDatums();
@@ -2919,7 +2951,7 @@ function createSim(opts){
     for(let k=st.buoys.length-1;k>=0;k--){ const b=st.buoys[k]; b.life-=dt; if(b.life<=0) st.buoys.splice(k,1); }
     // with the Control room damaged the plot is kept up only every other second
     senseT+=dt; if(senseT>=1){ senseT-=1; if(M.endless) lifeAround(); sense(); if(!(dm.on&&worn(dm.sec[1]))||(dm.listenN++&1)===0) listen(); }
-    stepEnemy(dt);
+    stepEnemy(st.enemy,true,dt);
     if(!st.over) M.tick(API);
     if(!st.over&&!M.endless&&st.t>=st.timeLimit-1e-6) end('lose',M.timeout||'Mission failed: out of time.');
     return st;
