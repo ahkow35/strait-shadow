@@ -931,7 +931,7 @@ async function stagec() {
   await ev('(function(){ const st=__G.sim.state, p=st.player; p.x+=9000; p.z+=9000; st.enemy.base=0; st.enemy.cues=0; st.torps.length=0; __G.stepFrames(6); })(); 1'); await frames(3);
   await ev('__G.effects.showResult(); 1'); await frames(3);
   v = await ev('({result:__G.sim.state.result,reason:__G.sim.state.reason,title:document.getElementById("r-title").textContent,stars:document.getElementById("r-stars").textContent,lines:Array.from(document.querySelectorAll("#r-lines li")).map(l=>(l.className==="ok"?"+":"-")+l.textContent),next:!document.getElementById("b-next").hidden,saved:JSON.parse(localStorage.getItem("strait-shadow")).stars})');
-  note(v.result === 'win' && /Mission complete/.test(v.title) && /★/.test(v.stars) && v.lines[0][0] === '+' && !v.next && v.saved.strait >= 1, 'getting clear wins Strait Shadow: stars are shown and saved, and there is no next mission after the last one', v);
+  note(v.result === 'win' && /Mission complete/.test(v.title) && /★/.test(v.stars) && v.lines[0][0] === '+' && v.next && v.saved.strait >= 1, 'getting clear wins Strait Shadow: stars are shown and saved, and Silent Hunt follows it as the next mission', v);
   await shot('77-result-stars-1280');
 
   // --- Free Patrol: the score rises with each frigate put out of action; a ship long out of action leaves the picture ---
