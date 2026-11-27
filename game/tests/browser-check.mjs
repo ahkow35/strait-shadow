@@ -2462,6 +2462,12 @@ async function stagek() {
       tag + ': the Search depth row sits after Run depth, starts Shallow, fire control suggests Deep for the submarine, and its contact carries the layer note', set);
     if (!phone) { await key('Digit9', '9', 57); const k9 = await ev('({band:__G.input.band,note:document.getElementById("ts-note").textContent})'); note(k9.band === 1 && !/set Search depth to Deep/.test(k9.note), tag + ': key 9 sets Search depth to Deep, and the suggestion goes', k9); }
     else { await ev('Array.from(document.querySelectorAll("#tset [data-k=band] button"))[1].click(); 1'); note(await ev('__G.input.band') === 1, tag + ': tapping Deep sets Search depth to Deep'); }
+    // the open settings over a target that changes: back to Shallow the suggestion returns; with the target dropped it goes, and with the submarine chosen again it comes back
+    const sugg = async js => { await ev(js + ' 1'); await frames(3); return ev('/set Search depth to Deep/.test(document.getElementById("ts-note").textContent)'); };
+    const subId = await ev('__G.game.sel');
+    const back = await sugg('__G.input.band=0;'), dropped = await sugg('__G.game.sel=0;'), again = await sugg('__G.game.sel=' + subId + ';');
+    note(back && !dropped && again, tag + ': with the settings open, the Deep suggestion follows the chosen target as it changes', { back, dropped, again });
+    await ev('__G.input.band=1; 1');
     // a Deep torpedo along the bow at the Archer held still 700 m ahead at the torpedo's search depth: air rising at the surface above it, and the mission won
     await ev('__G.setSettings(false); __G.game.sel=0; __G.input.band=1; (function(){ const G=__G, st=G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); a.x=p.x+Math.cos(p.h)*700; a.z=p.z-Math.sin(p.h)*700; a.speed=0;'
       + ' for(let i=0;i<30*10&&!st.torps.some(t=>t.side===0);i++){ G.input.fire=p.readyT>0; G.stepFrames(1); }'
@@ -2473,6 +2479,10 @@ async function stagek() {
     // Help: one line for the Archer and one for the depth setting
     const help = await ev('document.getElementById("help").textContent');
     note(/The Archer\./.test(help) && /Search depth\./.test(help) && /Submarine/.test(help), tag + ': Help has a line for the Archer and one for Search depth');
+    // a new game starts at Shallow again, whatever the last one was set to
+    await ev('__G.input.band=1; __G.start(7,"duel"); __G.setSettings(true); 1'); await frames(3);
+    const fresh = await ev('({band:__G.input.band,on:Array.from(document.querySelectorAll("#tset [data-k=band] button")).map(b=>b.getAttribute("aria-pressed"))})');
+    note(fresh.band === 0 && fresh.on[0] === 'true' && fresh.on[1] === 'false', tag + ': a new game starts with Search depth at Shallow, on the screen too', fresh);
   }
 }
 

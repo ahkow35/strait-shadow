@@ -1949,6 +1949,21 @@ if (want('duel')) {
     const all = [hear, mast, torp], fine = all.every(r => r.quiet && !r.told && !r.bad.length);
     parts.push([fine && hear.max >= 2 && hear.attack && mast.max >= 2 && torp.evade, 'hidden awareness: the Archer heard the boat (picture level ' + hear.max + ') and attacked it (' + (hear.attack ? 'fired' : 'did not fire') + '), saw its mast (level ' + mast.max + ') and heard a torpedo coming (' + (torp.evade ? 'evaded' : 'did not evade') + '); through all of it the surface picture, the statistics and the detection messages stayed quiet ('
       + all.map(r => (r.quiet ? 'quiet' : 'MOVED') + ', ' + r.told + ' told').join('; ') + '), and the only events that dropped time compression were the boat\'s own senses (' + all.map(r => JSON.stringify(r.threats)).join(' ') + (all.some(r => r.bad.length) ? '; NOT ALLOWED: ' + all.map(r => r.bad.join(',')).join(' ') : '') + ')']); }
+  // 7b. an Archer torpedo the boat cannot hear is reported quietly: the Archer fires at the boat, the boat is moved 9 km away at once, and every event of that
+  // torpedo (its lock, a noisemaker taking it, its end) carries quiet, because the boat never comes within hearing of it
+  // (once on its own, when it takes sea life, and once with a neutral ship held 400 m ahead of it until it locks on, so that it locks on to a ship)
+  { const unheard = ship => { const { g, st, p, a } = world(21); a.x = p.x + 1800; a.z = p.z; a.depth = a.wantD = V.periscope; a.mode = 'listen'; a.modeT = 30;
+    let tid = 0, far = true; const evs = [];
+    for (let i = 0; i < 30 * 900 && !st.over; i++) { g.step(STEP, { throttle: 0, depthCmd: 30 });
+      const t = st.torps.find(q => q.owner === a.id);
+      if (t && !tid) { tid = t.id; p.x = t.x - 9000; p.z = t.z; }
+      const n = ship && t && !evs.some(e => e.type === 'homing') && st.ships.find(q => q.neutral && !q.out); if (n) { n.x = t.x + Math.cos(t.h) * 400; n.z = t.z - Math.sin(t.h) * 400; }
+      if (tid) { const u = st.torps.find(q => q.id === tid); if (u && Math.hypot(u.x - p.x, u.z - p.z) <= V.sonar.torp) far = false; }
+      for (const e of g.events) if (tid && e.id === tid && ['homing', 'fooled', 'torpEnd'].includes(e.type)) evs.push(e);
+      g.events.length = 0; if (tid && !st.torps.some(q => q.id === tid)) break; }
+    return { ok: tid && far && evs.some(e => e.type === (ship ? 'homing' : 'torpEnd')) && !evs.some(e => !e.quiet), text: '(fired ' + (tid ? 'yes' : 'no') + ', always beyond ' + V.sonar.torp + ' m: ' + far + ') ' + evs.map(e => e.type + (e.on ? ' on ' + e.on : '') + (e.quiet ? ' quiet' : ' LOUD')).join(', '), on: evs.filter(e => e.on).map(e => e.on) }; };
+    const alone = unheard(false), shipAhead = unheard(true);
+    parts.push([alone.ok && shipAhead.ok && shipAhead.on.includes('neutral'), 'an Archer torpedo the boat never hears is reported quietly: on its own ' + alone.text + '; with a neutral ship ahead of it ' + shipAhead.text]); }
   // 8. balance (design 7.7): each row over 200 seeds, within 10 points of its target
   { const pct = n => Math.round(100 * n / 200), row = (name, got, lo, hi) => parts.push([got >= lo && got <= hi, name + ': ' + got + '% (target ' + lo + ' to ' + hi + '%)']);
     // detected first: both boats 5 km apart on the same side of the layer, heading roughly for each other
