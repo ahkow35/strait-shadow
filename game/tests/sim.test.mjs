@@ -1862,10 +1862,11 @@ if (want('replay')) {
 }
 // Unchanged. A change that only rearranges the rules must leave every game exactly as it was (the Duel plan, PR 1: tasks/todo.md). The game file as it stands on
 // the main branch is taken from git and its sim is run beside the one under test: the same mission, the same seed and the same player in each, step for step.
-// Every event is compared as it is emitted (events are not part of the saved state), and with it whether it would drop time compression. At the end the result,
-// the reason, the tick, the score, the statistics and the whole state must be the same: the state is compared as text, which is what the replay check's
-// fingerprint is taken from. The games: in every mission the scripted player on six seeds, an idle player, twelve random players and the three replay games
-// with the second hand on the panel; then the 13 missile games. A game file that cannot be read from git fails the check: it is never skipped.
+// Every event is compared as it is emitted (events are not part of the saved state), and with it whether it would drop time compression. The whole state is
+// compared after every step, so a difference that lasts one step and is then put right is still found. At the end the result, the reason, the tick, the score,
+// the statistics and the whole state must be the same: the state is compared as text, which is what the replay check's fingerprint is taken from.
+// The games: in every mission the scripted player on six seeds, an idle player, twelve random players and the three replay games with the second hand on
+// the panel; then the 13 missile games. A game file that cannot be read from git fails the check: it is never skipped.
 if (want('unchanged')) {
   const BASE = 'main:game/strait-shadow.html', diffs = [], held = {}, kinds = { scripted: [1].concat(SEEDS), idle: [1], random: [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012], replay: [3, 17, 29] };
   let OLD = null, why = '', sameText = false, games = 0, steps = 0, evs = 0, threats = 0;
@@ -1873,6 +1874,17 @@ if (want('unchanged')) {
     const om = execFileSync('git', ['show', BASE], { cwd: here, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).match(/<script id="sim">([\s\S]*?)<\/script>/);
     if (om) { OLD = new Function(om[1] + '\nreturn StraitSim;')(); sameText = om[1] === simText; } else why = 'it has no <script id="sim"> block';
   } catch (e) { why = String((e && e.message) || e).split('\n').filter(Boolean).slice(0, 2).join(' '); }
+  // Two states looked at side by side, value for value and key for key in the same order. It is quicker than writing both out as text, and it never calls two
+  // states alike whose texts differ, so a pair it calls different is then compared as text, which has the last word.
+  const alike = (x, y) => {
+    if (x === y) return true;
+    if (typeof x !== 'object' || typeof y !== 'object' || !x || !y) return typeof x === 'number' && typeof y === 'number' && !isFinite(x) && String(x) === String(y);
+    if (Array.isArray(x) !== Array.isArray(y)) return false;
+    if (Array.isArray(x)) { if (x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (!alike(x[i], y[i])) return false; return true; }
+    const kx = Object.keys(x), ky = Object.keys(y); if (kx.length !== ky.length) return false;
+    for (let i = 0; i < kx.length; i++) { const k = kx[i]; if (k !== ky[i] || !alike(x[k], y[k])) return false; }
+    return true;
+  };
   // one game played in both: a is the sim from git and b the one under test, pa and pb their players. It stops at the first difference and says where.
   const pair = (label, a, b, pa, pb, cap) => {
     const A = a.state, B = b.state; games++;
@@ -1884,6 +1896,7 @@ if (want('unchanged')) {
         const key = eb.type + (eb.type === 'homing' ? ' side ' + eb.side : ''); held[key] = (held[key] || 0) + 1; evs++; if (threat) threats++;
       }
       a.events.length = 0; b.events.length = 0;
+      if (!alike(A, B) && stateText(A) !== stateText(B)) { diffs.push(label + ' at tick ' + B.tick + ': the state ' + hash(A) + ' became ' + hash(B)); return; }
     }
     const bad = [], was = (name, x, y) => { if (x !== y) bad.push(name + ' ' + x + ' became ' + y); };
     was('over', A.over, B.over); was('result', A.result, B.result); was('reason', A.reason, B.reason); was('end tick', A.tick, B.tick); was('score', A.score, B.score);
@@ -1905,8 +1918,79 @@ if (want('unchanged')) {
   const per = Object.keys(kinds).map(k => kinds[k].length + ' ' + k).join(', '), n = ids.length * Object.keys(kinds).reduce((q, k) => q + kinds[k].length, 0) + M_GAMES.length;
   check('unchanged', [[!!OLD, OLD ? 'the game file was read from git (' + BASE + '; its sim is ' + (sameText ? 'the same text as the one under test' : 'not the same text as the one under test') + ')' : 'the game file could not be read from git (git show ' + BASE + '), so nothing was compared: ' + why]
   ].concat(!OLD ? [] : [[!diffs.length && games === n && ids.length === Object.keys(OLD.MISSIONS).length, games + ' games (' + ids.length + ' missions: ' + per + ' each; ' + M_GAMES.length + ' missile games), ' + steps + ' steps and ' + evs + ' events (' + threats + ' of them drop time compression)'
-      + (diffs.length ? ' DIFFER in ' + diffs.length + ': ' + diffs.slice(0, 6).join(' | ') : ': result, reason, end tick, score, statistics, every event and the final state are the same in both')],
+      + (diffs.length ? ' DIFFER in ' + diffs.length + ': ' + diffs.slice(0, 6).join(' | ') : ': result, reason, end tick, score, statistics, every event and the state after every step are the same in both')],
     [!missing.length, 'the events compared held ' + need.filter(k => held[k]).map(k => held[k] + ' ' + k).join(', ') + (missing.length ? '; MISSING: ' + missing.join(', ') : '')]]));
+}
+// Sides. The rules that ask whose a picture or a weapon is (the Duel plan, PR 1) have no user in any mission yet: every picture is the shown one and every heavy
+// torpedo is the boat's. So the other branches are driven here by hand, each beside a twin that takes the branch the game takes today, to show that the twin
+// does what the first must not. A picture that is not the shown one is written through the picture rules the sim hands out (sim.pictures); a heavy torpedo
+// that a frigate owns is a record put into the state with that frigate's id as its owner.
+if (want('sides')) {
+  const V = SIM.V, parts = [], QUIET = ['alert', 'mastSeen', 'shipEvade'], count = (ev, type) => ev.filter(e => e.type === type).length;
+  // a torpedo record as the sim makes one, already running and armed at its search depth, heading up the map
+  const torp = (st, o) => { const t = Object.assign({ id: 880001 + st.torps.length, side: 1, phase: 'search', x: 0, z: 0, depth: V.torp.depth, alt: 0, h: PI / 2, speed: V.torp.speed, vy: 0, run: 1000, st: 0, life: 90, target: 0, pod: 0, spin: 1, wire: false, lock: 0, bait: 0, seen: [], tx: 0, tz: 0,
+    launch: 1, enable: V.torp.enable, max: 1e9, deep: false, climbAt: 0, pat: 0, aimed: false, gyro: 0, aimRun: 1e9, base: 0, sw: 1, circ: 0, circled: false, patOn: false, again: 0, rej: [], from: 0, pref: false, goto: false, transT: 0 }, o); st.torps.push(t); return t; };
+  // Pictures. The start of First Blood, with the frigate 900 m off and pointing at the boat, the mast up, and one of the boat's torpedoes and one of its noisemakers
+  // close to the ship. Every picture rule is run on it by hand and nothing is stepped: 300 seconds of the ship's own sensors, a fix, an active echo, a noisemaker's
+  // pull, a dipping sonar's ping, then three seconds of going stale. Once on a picture of its own that is not the shown one, once in a twin world on the shown one.
+  const pictures = shown => { const sim = createSim({ mission: 'firstblood', seed: 7 }), st = sim.state, p = st.player, s = st.ships.find(q => q.kind === 'frigate'), P = sim.pictures;
+    const tr = shown ? st.enemy : JSON.parse(JSON.stringify(st.enemy)), stats0 = JSON.stringify(st.stats), enemy0 = JSON.stringify(st.enemy);
+    s.x = p.x + 900; s.z = p.z; s.h = bearing(s.x, s.z, p.x, p.z); p.mast = true; p.expo = 1; p.depth = V.periscope;
+    torp(st, { side: 0, x: s.x + 200, z: s.z }); const dc = { id: 880100, side: 0, x: s.x + 100, z: s.z, depth: 20, life: 60 }; st.decoys.push(dc);
+    for (let i = 0; i < 300; i++) { s.threat = 0; P.shipSense(s, tr, shown, 900, 1); }
+    P.detect(tr, shown, 'fix', s.x, s.z); P.activeFix(tr, shown, s.x, s.z); P.lure(tr, shown, dc); P.dipPing({ id: 880200, x: p.x + 300, z: p.z, fix: false }, tr, shown);
+    for (let i = 0; i < 90; i++) P.decay(tr, shown, STEP);
+    return { tr: JSON.stringify(tr), ev: sim.events.slice(), stats: st.stats, statsSame: JSON.stringify(st.stats) === stats0, enemySame: JSON.stringify(st.enemy) === enemy0, level: tr.level }; };
+  const hid = pictures(false), seen = pictures(true), said = ev => QUIET.map(k => count(ev, k) + ' ' + k).join(', ');
+  parts.push([hid.level >= 3 && hid.tr === seen.tr, 'a picture that is not the shown one is written exactly as the shown one is in a twin world (it reaches level ' + hid.level + ', and every number in it is the same)']);
+  parts.push([hid.statsSame && hid.enemySame && hid.stats.firstAlert < 0 && hid.stats.maxLevel === 0 && hid.stats.trackedT === 0, 'it leaves the statistics and the shown picture as they were (first alert ' + hid.stats.firstAlert + ', highest level ' + hid.stats.maxLevel + ', time tracked ' + hid.stats.trackedT + ')']);
+  parts.push([QUIET.every(k => !count(hid.ev, k)) && JSON.stringify(hid.ev) === JSON.stringify(seen.ev.filter(e => !QUIET.includes(e.type))), 'it reports nothing (' + said(hid.ev) + '), and every other event is the same as in the twin (' + hid.ev.length + ')']);
+  parts.push([QUIET.every(k => count(seen.ev, k) > 0) && !seen.statsSame && seen.stats.firstAlert >= 0 && seen.stats.maxLevel >= 3 && seen.stats.trackedT > 0,
+    'the twin, on the shown picture, does report and count (' + said(seen.ev) + '; first alert ' + seen.stats.firstAlert + ', highest level ' + seen.stats.maxLevel + ', time tracked ' + seen.stats.trackedT.toFixed(1) + ' s)']);
+  // A frigate's heavy torpedo and the boat, in Strait Shadow's waters. The torpedo starts 1,000 m astern of the boat and runs up its track at its search depth.
+  // The frigate that owns it lies 300 m ahead of the torpedo and the other frigate 400 m ahead, both nearer than the boat, inside the seeker's cone and 40 m
+  // clear of its track.
+  // The other side is kept unaware, so nothing else is fired.
+  const hunt = depth => { const w = mWorld(11, { plain: true, level: 0, depth, mission: 'strait' }), st = w.st; w.tx = 40; w.tz = 700; w.v = 0; w.hold(); w.also('frigate', -40, 600, PI / 2);
+    const t = torp(st, { owner: w.tgt.id, x: 0, z: 1000 }), o = { sub: false, own: false };
+    w.run(95, {}, q => { if (t.target === -1) o.sub = true; else if (t.target) o.own = true; return q.torps.includes(t); });
+    const mine = e => e.id === t.id; o.homing = w.ev.filter(e => e.type === 'homing' && mine(e)); o.hit = w.ev.filter(e => e.type === 'playerHit' && mine(e)); o.end = w.ev.filter(e => e.type === 'torpEnd' && mine(e)).length;
+    o.struck = w.ev.filter(e => e.type === 'hit' && mine(e)).length; o.stats = st.stats; o.t = st.t; return o; };
+  const shallow = hunt(V.periscope), under = hunt(14), deep = hunt(30);
+  parts.push([shallow.homing.length >= 1 && shallow.homing[0].side === 1 && shallow.sub && !shallow.own && !shallow.struck && shallow.hit.length === 1 && shallow.stats.taken === 1 && shallow.stats.hits === 0 && shallow.stats.neutral === 0,
+    "a frigate's heavy torpedo passes the frigate that owns it and the other frigate, takes the boat at periscope depth for its target and strikes it (after " + shallow.t.toFixed(0) + ' s; hits taken ' + shallow.stats.taken + ')']);
+  parts.push([under.homing.length >= 1 && under.sub && !under.hit.length && under.end === 1 && under.stats.taken === 0, 'with the boat at 14 m it hears the boat and follows it but passes over the hull and runs out (locked ' + under.homing.length + ' time(s), hits taken ' + under.stats.taken + ')']);
+  parts.push([!deep.homing.length && !deep.sub && !deep.hit.length && deep.end === 1 && deep.stats.taken === 0, 'with the boat at 30 m, out of its seeker\'s hearing, it never locks on and runs out']);
+  // A heavy torpedo and a neutral ship, on Hard: a merchant lies still across the torpedo's track 600 m ahead, with the boat 3,000 m away and deep. The frigate's
+  // torpedo has its frigate just off its track on the way; the twin is one of the boat's own, with the frigate far off.
+  const strike = own => { const w = mWorld(11, { plain: true, level: 0, difficulty: 'hard' }), st = w.st; if (!own) { w.tx = 3040; w.tz = 800; w.v = 0; } w.hold();
+    const m = w.also('merchant', 3000, 400, 0), hp = m.hp, score = st.score, t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
+    w.run(60, {}, q => q.torps.includes(t) && !q.over);
+    const hit = w.ev.find(e => e.type === 'hit' && e.id === t.id);
+    return { hit: !!hit && hit.ship === m.id && hit.neutral === true, lost: hp - m.hp, neutral: st.stats.neutral, hits: st.stats.hits, over: st.over, result: st.result, score: st.score - score }; };
+  const theirs = strike(false), ours = strike(true);
+  parts.push([theirs.hit && theirs.lost === 2 && theirs.neutral === 0 && theirs.hits === 0 && !theirs.over && theirs.score === 0,
+    "a frigate's heavy torpedo that strikes a merchant damages it (" + theirs.lost + ' points) and is not counted against the captain: neutral ships hit ' + theirs.neutral + ', and on Hard the mission goes on']);
+  parts.push([ours.hit && ours.lost === 2 && ours.neutral === 1 && ours.over && ours.result === 'lose', 'the twin, one of the boat\'s own, is counted (neutral ships hit ' + ours.neutral + ') and on Hard ends the mission']);
+  // A heavy torpedo and a frigate with two damage points left and no noisemakers, lying across the torpedo's track 600 m ahead in Strait Shadow's waters.
+  // A torpedo goes off against any hull it runs into but its owner's, so the other frigate's torpedo sinks it too; only the boat's own is counted as a hit
+  // and a ship put out of action.
+  const sink = own => { const w = mWorld(11, { plain: true, level: 0, mission: 'strait' }), st = w.st; if (!own) { w.tx = 3040; w.tz = 800; w.v = 0; } w.hold();
+    const f = w.also('frigate', 3000, 400, 0), t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 }); f.hp = 2; f.cm = 0;
+    w.run(60, {}, q => q.torps.includes(t) && !q.over);
+    return { hit: w.ev.some(e => e.type === 'hit' && e.id === t.id && e.ship === f.id), sunk: f.out && w.ev.some(e => e.type === 'shipOut' && e.ship === f.id), hits: st.stats.hits, out: st.stats.out, scored: f.scored }; };
+  const theirF = sink(false), ourF = sink(true);
+  parts.push([theirF.hit && theirF.sunk && theirF.hits === 0 && theirF.out === 0 && theirF.scored === true && ourF.hit && ourF.sunk && ourF.hits === 1 && ourF.out === 1 && ourF.scored === false,
+    "a frigate's heavy torpedo that runs into the other frigate sinks it without a hit or a ship out of action going to the captain (hits " + theirF.hits + ', out ' + theirF.out + '), and marks it as nothing for a Free Patrol to pay for; the twin, one of the boat\'s own, is counted (hits ' + ourF.hits + ', out ' + ourF.out + ') and left to be scored']);
+  // A heavy torpedo and sea life, on Hard: a pod of whales or dolphins 300 m ahead of the torpedo at its depth, with no ship in front of it.
+  const pod = own => { const w = mWorld(11, { plain: true, level: 0, difficulty: 'hard' }), st = w.st, b = st.bios.find(q => q.kind !== 'fish'); if (!b) return null; if (!own) { w.tx = 3040; w.tz = 900; w.v = 0; } w.hold();
+    b.x = b.hx = b.tx = 3000; b.z = b.hz = b.tz = 700; b.depth = V.torp.depth; const t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
+    w.run(60, {}, q => q.torps.includes(t) && !q.over);
+    return { hit: w.ev.some(e => e.type === 'bioHit' && e.id === t.id && e.pod === b.id), bio: st.stats.bio, over: st.over, result: st.result }; };
+  const theirP = pod(false), ourP = pod(true);
+  parts.push([!!theirP && !!ourP && theirP.hit && theirP.bio === 0 && !theirP.over && ourP.hit && ourP.bio === 1 && ourP.over && ourP.result === 'lose',
+    "a frigate's heavy torpedo that goes off among sea life is not counted against the captain" + (theirP && ourP ? ' (sea life hit ' + theirP.bio + ', and on Hard the mission goes on); the twin, one of the boat\'s own, is counted (' + ourP.bio + ') and on Hard ends the mission' : ': NO POD in this world')]);
+  check('sides', parts);
 }
 if (mLines.length) { console.log('Missile balance over 200 seeds (the fixed scene of section 5; every layer counted together):'); for (const l of mLines) console.log(l); }
 if (table.length && mRandom.mFire !== undefined) { const q = k => mRandom[k] || 0;

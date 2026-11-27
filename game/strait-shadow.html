@@ -1578,16 +1578,19 @@ function createSim(opts){
     for(const k in o) t[k]=o[k];
     st.torps.push(t); return t;
   }
-  // A torpedo's weapon type and its owner are worked out from its numeric side, never stored. Side 0 is the boat's own: a heavy torpedo, on a wire the boat holds.
-  // Any other side is a light torpedo, dropped by a helicopter or fired from a frigate's deck, which nobody guides.
-  function weaponOf(t){ return t.side===0?'heavy':'light'; }
-  // the hull that fired a heavy torpedo and holds its wire; a light torpedo has no such hull
-  function ownerOf(t){ return t.side===0?st.player:null; }
+  // A torpedo's weapon type and its owner are worked out from what it already carries. Side 0 is the boat's own: a heavy torpedo, on a wire the boat holds.
+  // A heavy torpedo fired by a ship carries that ship's id as its owner: a key given at launch that only such a torpedo has (no ship fires one yet, so none does).
+  // Any other torpedo is a light one, dropped by a helicopter or fired from a frigate's deck, which nobody guides.
+  function weaponOf(t){ return t.side===0||t.owner?'heavy':'light'; }
+  // the hull that fired a heavy torpedo and holds its wire: none for a light torpedo, and none once the ship that fired it is gone
+  function ownerOf(t){ return t.side===0?st.player:t.owner?shipById(t.owner):null; }
   // what the holder of the wire is telling a torpedo this step, from -1 to 1 (0: nothing). The boat's hand steers the one torpedo picked for its orders.
   function wireOrder(t){ const o=ownerOf(t); return t.wire&&o===st.player&&o.wireId===t.id?inp.wire:0; }
-  // What a light torpedo hunts: the submarine of the other side (and that side's noisemakers, see loudest). The frigates' and the helicopters' torpedoes hunt the boat,
-  // and no other submarine is in the game yet.
-  function quarryOf(t){ return st.player; }
+  // The submarine a torpedo hunts: the one of the other side (and, for a light torpedo, that side's noisemakers: see loudest). A torpedo of the frigates' side
+  // hunts the boat. The boat's own torpedoes hunt none: no other submarine is in the game yet.
+  function quarryOf(t){ return sideOf(t)==='player'?null:st.player; }
+  // what a heavy torpedo's target holds while it follows the submarine it hunts, which has no ship id
+  const SUB=-1;
   for(let i=0;i<V.tubes;i++){ const w=i<V.load.t?'torpedo':'missile'; st.player.tube.push({s:w,w:w,to:'',q:'',t:0}); }
   tubeCount();
   const API={st:st,rr:rr,rr2:rr2,rr3:rr3,addBio:addBio,addShip:addShip,addNeutral:addNeutral,addHelo:addHelo,removeShip:removeShip,detect:(kind,x,z)=>detect(st.enemy,true,kind,x,z),end:end,emit:emit};
@@ -1973,7 +1976,7 @@ function createSim(opts){
     const off=clamp(gauss()*sg,-s.hl,s.hl), edge=L*(0.5-Q.ends), where=off>edge?'fore':off<-edge?'aft':'mid';
     const gun=where==='fore'&&s.kind==='frigate'&&!s.out&&s.gun; if(gun) s.gun=false;
     st.stats.mHit++; m.done='hit';
-    hitShip(s,{id:m.id,x:m.x,z:m.z,depth:0,h:m.h},where==='mid'?Q.mid:Q.end,{weapon:'missile',where:where,off:off,gun:gun,want:m.target,pop:m.pop});
+    hitShip(s,{id:m.id,x:m.x,z:m.z,depth:0,h:m.h},true,where==='mid'?Q.mid:Q.end,{weapon:'missile',where:where,off:off,gun:gun,want:m.target,pop:m.pop});
   }
   // One step of a missile's flight. False when it is over.
   function stepMissile(m,dt){
@@ -2437,26 +2440,32 @@ function createSim(opts){
   }
 
   /* ---------- torpedoes ---------- */
+  // a torpedo goes off against the boat's hull, so far forward (+) or aft (-) of its middle
+  function boatHit(t,along){ const sec=secAt(along); st.stats.taken++; emit('playerHit',{id:t.id,x:t.x,z:t.z,depth:t.depth,sec:sec,sev:K.hit.sev}); torpHit(sec); }
   // A weapon strikes a ship and takes pts damage points off it: a torpedo 2 (the default), a missile 1 or 2 by where it hits. more: what else the hit event should say (a missile's hit point).
-  function hitShip(s,t,pts,more){
+  // mine: the weapon is the boat's. The damage is the same whoever fired; the captain's hit and kill counts, the patrol's points, the penalty for a neutral ship,
+  // what the hit shows the captain of the ship, and what it tells the frigates of the boat, all follow only from the boat's own weapons.
+  function hitShip(s,t,mine,pts,more){
     const live=!s.out, msl=!!more&&more.weapon==='missile';
     pts=pts||V.missile.torp;
     if(s.neutral){
       // a neutral ship: no credit, and a penalty. On Hard the mission ends there.
-      if(live){ s.hp=Math.max(0,s.hp-pts); st.stats.neutral++; s.ident=1; s.known=true; }
+      if(live){ s.hp=Math.max(0,s.hp-pts); if(mine){ st.stats.neutral++; s.ident=1; s.known=true; } }
       emit('hit',Object.assign({id:t.id,ship:s.id,kind:s.kind,neutral:true,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more));
       if(!live) return;
       if(s.hp<=0){ s.out=true; s.outT=0; emit('shipOut',{ship:s.id,kind:s.kind,neutral:true,x:s.x,z:s.z}); }
+      if(!mine) return;
       if(M.endless){ const add=-Math.min(st.score,V.neutral.fine); st.score+=add; emit('score',{add:add,score:st.score,ship:s.id,neutral:true}); }
       if(diff==='hard') end('lose','Mission failed: a weapon struck a neutral ship.');
       return;
     }
-    if(live){ s.hp=Math.max(0,s.hp-pts); st.stats.hits++; }
+    if(live){ s.hp=Math.max(0,s.hp-pts); if(mine) st.stats.hits++; }
     emit('hit',Object.assign({id:t.id,ship:s.id,kind:s.kind,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more));
-    if(live&&s.hp<=0){ s.out=true; s.outT=0; s.threat=0; if(s.kind==='frigate') st.stats.out++; emit('shipOut',{ship:s.id,kind:s.kind,x:s.x,z:s.z}); }
-    else if(live&&hostile(s)&&!msl) detect(st.enemy,true,'area',s.x,s.z);      // a missile says nothing new about where the boat is: its launch already gave them a place to search
+    // a ship put out of action by a weapon that is not the boat's is marked as already scored, so a Free Patrol pays the captain nothing for it
+    if(live&&s.hp<=0){ s.out=true; s.outT=0; s.threat=0; if(!mine) s.scored=true; else if(s.kind==='frigate') st.stats.out++; emit('shipOut',{ship:s.id,kind:s.kind,x:s.x,z:s.z}); }
+    else if(mine&&live&&hostile(s)&&!msl) detect(st.enemy,true,'area',s.x,s.z);      // a missile says nothing new about where the boat is: its launch already gave them a place to search
     // a hit on the ship they guard tells the escorts which way the torpedo came from
-    if(live&&s.kind==='cargo'&&!msl) for(const f of st.ships) if(hostile(f)&&!f.out){ detect(st.enemy,true,'cue',f.x,f.z,s.x-Math.cos(t.h)*1500,s.z+Math.sin(t.h)*1500); break; }
+    if(mine&&live&&s.kind==='cargo'&&!msl) for(const f of st.ships) if(hostile(f)&&!f.out){ detect(st.enemy,true,'cue',f.x,f.z,s.x-Math.cos(t.h)*1500,s.z+Math.sin(t.h)*1500); break; }
   }
   // a torpedo close by: the pod scatters, away from it, and falls silent for a while
   function scare(b,t,secs){
@@ -2464,9 +2473,12 @@ function createSim(opts){
     b.scareT=secs; b.fleeH=brg(t.x,t.z,b.x,b.z); if(b.kind!=='fish'){ b.call=false; b.callT=secs*0.6; }
   }
   // a torpedo that goes off among sea life: nothing gained, and the same penalty as for a neutral ship. On Hard the mission ends there.
-  function hitBio(b,t){
-    st.stats.bio++; b.hit=true; b.known=true; b.ident=1; scare(b,t,90);
+  // mine: the torpedo is the boat's. Only then is it counted against the captain, and only then does it show the captain what the pod was.
+  function hitBio(b,t,mine){
+    b.hit=true; if(mine){ st.stats.bio++; b.known=true; b.ident=1; }
+    scare(b,t,90);
     emit('bioHit',{id:t.id,pod:b.id,kind:b.kind,x:t.x,z:t.z,depth:t.depth});
+    if(!mine) return;
     if(M.endless){ const add=-Math.min(st.score,V.neutral.fine); st.score+=add; emit('score',{add:add,score:st.score,ship:b.id,neutral:true,bio:true}); }
     if(diff==='hard') end('lose','Mission failed: a torpedo went off among sea life.');
   }
@@ -2556,15 +2568,17 @@ function createSim(opts){
   }
   // A heavy torpedo: the boat's own weapon. It leaves on the gyro course fire control set (or along the bow), runs out to its enable distance, then searches in its pattern
   // and homes on the nearest ship ahead of it. While its wire lasts it can be steered, sent to another contact, or told to drop what it has locked on to.
-  // Nothing here asks whose it is except through its owner (ownerOf): the wire runs to the owner and carries the owner's orders (wireOrder), any ship but the owner
-  // is a target, and the noisemakers that fool it are the other side's.
+  // Nothing here asks whose it is except through its owner (ownerOf) and its side (sideOf): the wire runs to the owner and carries the owner's orders (wireOrder),
+  // the ships it goes for are those not of its own side, the noisemakers that fool it are the other side's, and what a hit counts for follows whose it is.
+  // One that is not the boat's also hunts the boat (quarryOf): the seeker hears the boat only while the boat is within its hearing of the search depth, and the
+  // torpedo does not leave that depth, so it strikes only a boat that is shallow. A search at depth comes with the Duel's depth setting.
   function stepHeavyTorp(t,dt){
-    const T=V.torp, K=V.attack, own=ownerOf(t);
+    const T=V.torp, K=V.attack, own=ownerOf(t), q=quarryOf(t), mine=sideOf(t)==='player', heard=!!q&&Math.abs(q.depth-T.depth)<=K.hears;
     // a swim-out launch works up to its run speed slowly; an impulse launch is there in a moment
     t.speed=Math.min(T.speed,t.speed+(t.launch===0?(T.speed-K.swim.speed)/K.swim.ramp:K.impulse.accel)*dt); t.life-=dt; t.run+=t.speed*dt;
-    if(t.wire&&Math.hypot(t.x-own.x,t.z-own.z)>V.wire.len) cutWire(t,'range');
-    let tg=t.target?shipById(t.target):null, bait=null, pod=null;
-    if(tg&&(tg.out||Math.hypot(tg.x-t.x,tg.z-t.z)>T.seek*1.5)){ tg=null; t.target=0; }
+    if(t.wire&&(!own||Math.hypot(t.x-own.x,t.z-own.z)>V.wire.len)) cutWire(t,'range');
+    let tg=t.target===SUB?q:t.target?shipById(t.target):null, bait=null, pod=null;
+    if(tg&&(tg.out||Math.hypot(tg.x-t.x,tg.z-t.z)>T.seek*1.5||(tg===q&&!heard))){ tg=null; t.target=0; }
     if(t.pod){ for(const b of st.bios) if(b.id===t.pod) pod=b; if(!pod||Math.hypot(pod.x-t.x,pod.z-t.z)>V.bio.seek*1.6){ pod=null; t.pod=0; } }
     if(t.bait){ for(const dc of st.decoys) if(dc.id===t.bait) bait=dc; if(!bait) t.bait=0; }
     // a lock lost: it searches again in its pattern, once (a straight search simply runs on)
@@ -2581,11 +2595,16 @@ function createSim(opts){
         // the nearest ship ahead (after a retarget, the one nearest the predicted point), leaving out any it was told to reject or was sent away from
         let best=1e9;
         for(const s of st.ships){
-          if(s===own||s.out||s.id===t.from||t.rej.indexOf(s.id)>=0) continue;
+          if(sideOf(s)===sideOf(t)||s.out||s.id===t.from||t.rej.indexOf(s.id)>=0) continue;
           const d=Math.hypot(s.x-t.x,s.z-t.z); if(d>=T.seek||Math.abs(wrap(brg(t.x,t.z,s.x,s.z)-t.h))>=T.cone) continue;
           const m=t.pref?Math.hypot(s.x-t.tx,s.z-t.tz):d; if(m<best){ best=m; tg=s; }
         }
-        if(tg){ t.target=tg.id; t.pod=0; pod=null; t.phase='home'; t.from=0; t.pref=false; t.goto=false; emit('homing',{id:t.id,side:t.side,kind:tg.ident>=1?tg.kind:''}); }
+        // the submarine it hunts is one more thing ahead of it, by the same rule
+        if(heard){
+          const d=Math.hypot(q.x-t.x,q.z-t.z), m=t.pref?Math.hypot(q.x-t.tx,q.z-t.tz):d;
+          if(d<T.seek&&Math.abs(wrap(brg(t.x,t.z,q.x,q.z)-t.h))<T.cone&&m<best){ best=m; tg=q; }
+        }
+        if(tg){ t.target=tg===q?SUB:tg.id; t.pod=0; pod=null; t.phase='home'; t.from=0; t.pref=false; t.goto=false; emit('homing',{id:t.id,side:t.side,kind:tg.ident>=1?tg.kind:''}); }
         // with no ship in front of it the seeker can take a pod of whales or dolphins for one, close to
         else if(!pod){
           let near=V.bio.seek;
@@ -2627,12 +2646,17 @@ function createSim(opts){
     if(armed) for(const s of st.ships){
       if(s===own) continue;
       const dx=t.x-s.x, dz=t.z-s.z, c=Math.cos(s.h), sn=Math.sin(s.h);
-      if(Math.abs(dx*c-dz*sn)<s.hl&&Math.abs(dx*sn+dz*c)<s.hb&&t.depth<13){ hitShip(s,t); return false; }
+      if(Math.abs(dx*c-dz*sn)<s.hl&&Math.abs(dx*sn+dz*c)<s.hb&&t.depth<13){ hitShip(s,t,mine); return false; }
+    }
+    // the submarine it hunts is struck only inside its hull, in all three dimensions: the hull a light torpedo strikes, 72 m long and 10 m across and deep
+    if(armed&&q){
+      const rx=t.x-q.x, rz=t.z-q.z, c=Math.cos(q.h), sn=Math.sin(q.h), along=rx*c-rz*sn;
+      if(Math.abs(along)<36&&Math.abs(rx*sn+rz*c)<5&&Math.abs(t.depth-q.depth)<5){ boatHit(t,along); return false; }
     }
     // sea life: a pod scatters as the torpedo comes near; it goes off only right among whales or dolphins. A school of fish it simply runs through.
     for(const b of st.bios){
       const d=Math.hypot(b.x-t.x,b.z-t.z); if(d>V.bio.scare) continue;
-      if(armed&&b.kind!=='fish'&&d<V.bio.fuse&&Math.abs(b.depth-t.depth)<V.bio.fuse){ hitBio(b,t); return false; }
+      if(armed&&b.kind!=='fish'&&d<V.bio.fuse&&Math.abs(b.depth-t.depth)<V.bio.fuse){ hitBio(b,t,mine); return false; }
       if(b.scareT<20) scare(b,t,40);
     }
     if(t.life<=0){ emit('torpEnd',{id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}); return false; }
@@ -2681,8 +2705,7 @@ function createSim(opts){
     t.x+=Math.cos(t.h)*t.speed*dt; t.z-=Math.sin(t.h)*t.speed*dt;
     const rx=t.x-q.x, rz=t.z-q.z, c=Math.cos(q.h), sn=Math.sin(q.h);
     if(Math.abs(rx*c-rz*sn)<36&&Math.hypot(rx*sn+rz*c,t.depth-q.depth)<5){
-      const sec=secAt(rx*c-rz*sn); st.stats.taken++;
-      emit('playerHit',{id:t.id,x:t.x,z:t.z,depth:t.depth,sec:sec,sev:K.hit.sev}); torpHit(sec); return false;
+      boatHit(t,rx*c-rz*sn); return false;
     }
     if(t.life<=0){ emit('torpEnd',{id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}); return false; }
     return true;
@@ -2966,7 +2989,10 @@ function createSim(opts){
   // With a route given it also says where the missile would fly: the aim point, the dog-leg's waypoint, or `direct` when the ship is too close for a dog-leg.
   const gateOut=(target,route)=>{ const g=missileGate(clamp(Math.floor(num(target,0)),0,1e9),clamp(Math.round(num(route,0)),0,2));
     return {ok:!g.why,why:g.why,text:g.why?MSG[g.why]:'',route:g.why?0:g.route,direct:!g.why&&g.direct,ax:g.why?0:g.q.x,az:g.why?0:g.q.z,wx:g.leg?g.leg.wx:0,wz:g.leg?g.leg.wz:0}; };
-  return {step:step,state:st,events:events,seabed:(x,z)=>bedDepth(st.bed,x,z),shrimp:(x,z)=>shrimpAt(st.bed,x,z),plan:planOut,gate:gateOut};
+  // pictures: the picture rules themselves, each told which picture to write and whether it is the shown one. The game reaches them only through step; they are
+  // handed out so that a test can run them on a picture that is not the shown one.
+  return {step:step,state:st,events:events,seabed:(x,z)=>bedDepth(st.bed,x,z),shrimp:(x,z)=>shrimpAt(st.bed,x,z),plan:planOut,gate:gateOut,
+    pictures:{detect:detect,activeFix:activeFix,lure:lure,decay:stepEnemy,shipSense:shipSense,dipPing:dipPing}};
 }
 // Time compression lives outside the simulation: a frame of real time is simply worth more fixed steps. clock.acc carries what is left over.
 // Returns how many steps to run now. The steps themselves are the same whatever the setting, so the game plays out the same.
