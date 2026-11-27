@@ -652,6 +652,7 @@ body.table #tset:not(.m) #ts-tubes,body.table #tset:not(.m) #ts-cancel{display:n
       <div class="srow wt" data-k="launch"><span>Launch</span><button type="button">Swim-out</button><button type="button">Impulse</button></div>
       <div class="srow wt" data-k="enable"><span>Enable</span><button type="button">Auto</button><button type="button">Short</button><button type="button">Long</button></div>
       <div class="srow wt" data-k="runDepth"><span>Run depth</span><button type="button">Shallow</button><button type="button">Deep</button></div>
+      <div class="srow wt" data-k="band"><span>Search depth</span><button type="button">Shallow</button><button type="button">Deep</button></div>
       <div class="srow wt" data-k="search"><span>Search</span><button type="button">Straight</button><button type="button">Snake</button><button type="button">Circle</button></div>
       <div class="srow wm" data-k="attack"><span>Attack</span><button type="button">Sea-skim</button><button type="button">Pop-up</button></div>
       <div class="srow wm" data-k="route"><span>Route</span><button type="button">Direct</button><button type="button">Dog-leg left</button><button type="button">Dog-leg right</button></div>
@@ -724,6 +725,8 @@ body.table #tset:not(.m) #ts-tubes,body.table #tset:not(.m) #ts-cancel{display:n
         <li><b>Shoot.</b> Choose a target: Fire then aims the torpedo by its solution, ahead of the target. With no target, or no solution yet, it runs along the bow. The torpedo settings are chosen before the launch and cannot be changed after it. Swim-out is quiet but slow to start; Impulse is fast and loud. Enable is how far it runs before its seeker listens. A Deep run is quieter, and passes under ships until it climbs. Search is what it does when it finds nothing: carry straight on, snake, or circle back once. A torpedo arms 300 m from the tube (a game value): nearer than that it passes harmlessly.</li>
         <li><b>On the wire.</b> The torpedo trails a wire. The seeker view shows what it hears ahead of its nose, and what it has locked on to: "moving, machinery" is a ship; "stationary, no machinery" is how a noisemaker sounds, and sea life reads "moving, no machinery". Reject makes it leave that lock and search again; Retarget sends it to the selected contact, listening to nothing on the way. It can be steered left or right while it runs out or searches. A hard turn, more than Half speed, or a long run breaks the wire, and then the weapon is on its own.</li>
         <li><b>Missile.</b> Two tubes start with an anti-ship missile, and two more wait in the rack. A missile reaches 9 km, far beyond a torpedo, and flies there in under a minute. It has no wire: it goes where the solution says the ship will be, then its own radar picks the ship nearest that point, neutral or not. It needs a selected contact with a solution graded Poor or better (a rough aim is enough, because its radar searches for itself) that puts the ship between 1.5 and 9 km, and the boat no deeper than 60 m and no faster than 6 kn. <b>Update missile</b> (Z, or the Update button on the plot) sends every missile in flight the current solution, but only while the boat is at periscope depth with the mast up, where it can be seen. A missile that had locked lets go and searches again from the new aim point. The flight is short, so have the mast up before you fire if you mean to update. <b>Route</b>, in Settings, is Direct or a Dog-leg to the left or right: a dog-leg flies out to one side and turns in, which takes about 20 s longer and needs the ship at least 5 km off (closer than that it flies direct, and says so). It comes in from a side the ship is not watching, so even an alert frigate is slow to react. The launch flame still shows them where the boat is. Swapping a tube between torpedo and missile takes 60 s and no other tube reloads meanwhile; silent running pauses it. Sea-skim stays very low and is seen late, but meets the ship's gun. Pop-up climbs, is seen early and gives the ship's missile defence more time, but dives steeply, is harder for the gun and strikes amidships more often. A hit amidships does twice the damage of a hit forward or aft; a hit forward puts the ship's gun out of action. A frigate defends itself with its missile defence, its gun and chaff decoys, jams the missile's radar once it is alert, which makes it lock a little later, and turns bow-on; two missiles together are harder to stop. The launch breaks the surface with a flame: it ends silent running, and about 15 s later they search where it came up. All of these are game values.</li>
+        <li><b>Search depth.</b> A torpedo set Shallow searches near the surface for ships and passes over a submarine below it. Set Deep, it searches at one depth chosen at launch from the contact's layer note, then follows its target up or down. Fire control suggests Deep when the target is a submarine.</li>
+        <li><b>The Archer.</b> In Silent Hunt, and sometimes in Free Patrol, an Archer-class submarine hunts you. It is about as quiet as you are and listens as well; it creeps, stops to listen and sprints. Nothing tells you when it has heard you, so listen for it first, stay slow and quiet, and set your torpedo Deep.</li>
         <li><b>Slip away.</b> When a torpedo is in the water, release a noisemaker, turn away and go deep and quiet. You carry four (a game value).</li>
         <li><b>Damage control.</b> A torpedo hit holes one of the four sections, shakes the whole boat and may start a fire; so does hitting the seabed fast, or a ship's hull overhead at periscope depth. The damage panel shows each section: water in blue, fire in orange, smoke in grey, the injured as a number, and a marker where the damage-control team works. Water comes in faster the deeper you are, and the pumps are weaker deep, so go shallower and keep some speed: the planes hold up a heavy boat. Send the team with 1 to 4 or a tap; it puts out fire first, then plugs the hole, then pumps. A burning section can be sealed once: the fire dies, but everyone inside is hurt. Below the red crush line on the depth gauge the hull gives way. As a last resort the emergency blow (B twice) drives the boat to the surface: loud, and only once.</li>
         <li><b>Stars.</b> Each mission gives up to three stars, and the title screen says what earns them. Every mission is open from the start, in any order. In Free Patrol frigates keep coming, and the score is kept.</li>
@@ -733,6 +736,7 @@ body.table #tset:not(.m) #ts-tubes,body.table #tset:not(.m) #ts-cancel{display:n
         <tr><th>High-value ship</th><td>4 blades, slow shaft</td></tr>
         <tr><th>Merchant</th><td>5 blades, slow shaft (neutral)</td></tr>
         <tr><th>Fishing boat</th><td>3 blades, very fast shaft (neutral)</td></tr>
+        <tr><th>Submarine</th><td>7 blades, slow shaft, very quiet. Once classified, the contact says whether it is above or below the layer</td></tr>
         <tr><th>Biologic</th><td>No shaft rate, irregular sounds: whales, dolphins, fish (hold fire)</td></tr>
       </table>
       <table>
@@ -744,7 +748,7 @@ body.table #tset:not(.m) #ts-tubes,body.table #tset:not(.m) #ts-cancel{display:n
         <tr><th>N</th><td>Choose the next sonar contact as the target (or tap the ring); after the last one, no target</td></tr>
         <tr><th>[ ] and - =</th><td>Hold the target's course 10° less or more, its speed 1 kn less or more</td></tr>
         <tr><th>O, U</th><td>Auto: fire control fits course and speed again. Restart fit: drop the old bearings</td></tr>
-        <tr><th>I, 5 6 7 8</th><td>Weapon settings; or step through Launch, Enable, Run depth, Search. In Settings, the Tubes row swaps a loaded tube between torpedo and missile (60 s, one tube at a time) or cancels a swap, and the Attack row sets a missile to sea-skim or pop-up</td></tr>
+        <tr><th>I, 5 6 7 8 9</th><td>Weapon settings; or step through Launch, Enable, Run depth, Search, Search depth. In Settings, the Tubes row swaps a loaded tube between torpedo and missile (60 s, one tube at a time) or cancels a swap, and the Attack row sets a missile to sea-skim or pop-up</td></tr>
         <tr><th>, and .</th><td>Steer the torpedo on the wire left, right while it runs out or searches</td></tr>
         <tr><th>J K L</th><td>Next torpedo on a wire, retarget it to the selected contact, reject its lock</td></tr>
         <tr><th>X</th><td>Release a noisemaker decoy</td></tr>
@@ -2759,7 +2763,7 @@ function createSim(opts){
       if(armed&&b.kind!=='fish'&&d<V.bio.fuse&&Math.abs(b.depth-t.depth)<V.bio.fuse){ hitBio(b,t,mine); return false; }
       if(b.scareT<20) scare(b,t,40,mine);
     }
-    if(t.life<=0){ emit('torpEnd',{id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}); return false; }
+    if(t.life<=0){ const e={id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}; if(!mine&&!audible(t)) e.quiet=1; emit('torpEnd',e); return false; }
     return true;
   }
   // what a light torpedo can hear: the submarine it hunts (quarryOf: the boat) and any noisemaker of that side. It goes for the loudest, gives the one it already
@@ -3192,7 +3196,7 @@ function isThreat(e,st){
   }
   return false;
 }
-return {createSim:createSim,MISSIONS:MISSIONS,V:V,LEVELS:LEVELS,MSG:MSG,hitText:hitText,STEP:STEP,wrap:wrap,bearing:brg,pace:pace,isThreat:isThreat,solveTrack:solveTrack,firePlan:firePlan,intercept:intercept};
+return {createSim:createSim,MISSIONS:MISSIONS,V:V,LEVELS:LEVELS,MSG:MSG,hitText:hitText,STEP:STEP,wrap:wrap,bearing:brg,pace:pace,isThreat:isThreat,solveTrack:solveTrack,firePlan:firePlan,intercept:intercept,hullNoise:hullNoise,bandDepth:bandDepth};
 })();
 
 </script>
@@ -3221,7 +3225,9 @@ const REDUCED=!!(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)
 const SIM=window.StraitSim, GV=SIM.V, STEP=SIM.STEP, wrap=SIM.wrap;
 const ALL_IDS=Object.keys(SIM.MISSIONS), isMission=m=>typeof m==='string'&&ALL_IDS.indexOf(m)>=0;
 const ENDLESS=m=>!!SIM.MISSIONS[m].endless, MISSION_IDS=ALL_IDS.filter(m=>!ENDLESS(m)), PATROL=ALL_IDS.filter(ENDLESS)[0];
-const CLS={frigate:'Frigate',cargo:'High-value ship',merchant:'Merchant',fishing:'Fishing boat',hulk:'Hulk',bio:'Biologic'}, NEUTRAL={merchant:1,fishing:1}, LETTER={frigate:'F',cargo:'H',merchant:'M',fishing:'B'};
+const CLS={frigate:'Frigate',cargo:'High-value ship',merchant:'Merchant',fishing:'Fishing boat',hulk:'Hulk',bio:'Biologic',submarine:'Submarine'}, NEUTRAL={merchant:1,fishing:1}, LETTER={frigate:'F',cargo:'H',merchant:'M',fishing:'B',submarine:'S'};
+// the Duel: the rough note on a classified submarine of which side of the layer it was heard on
+const layerNote=c=>c&&c.layer?' \u00b7 '+c.layer+' the layer':'';
 const clsName=c=>CLS[c]||'Unknown contact';
 // sea life: what each kind is called, and what it sounds like once listening has worked it out. Until then a pod is shown exactly as an unknown ship is.
 const BIO={whale:'whales',dolphin:'dolphins',fish:'fish'}, BIO_THE={whale:'the whales',dolphin:'the dolphins',fish:'the school of fish'}, BIO_SIG={whale:'long low song',dolphin:'clicks, whistles',fish:'diffuse crackle'}, C_BIO='#cdbcf5', C_BIO_RGB='205,188,245';
@@ -3236,7 +3242,7 @@ let waterY=SURF_Y, W=1, H=1, VW=1, VH=1;   // W and H are the window; VW and VH 
 // The boat is always drawn at the middle of the scene and the sea is shifted past it, so the numbers the graphics card sees stay small.
 const G={sim:null,st:null,seed:1,mission:'shakedown',difficulty:'standard',running:false,paused:false,helpPause:false,started:false,sound:false,soundPref:true,overT:-1,jump:true,drift:0,best:{},stars:{},hints:{},patrolBest:0,storage:true,map:false,scope:false,mastUp:false,sel:0,warp:1,confirmT:0};
 const RS={t:0,ox:0,oz:0,h:PI/2,depth:20,speed:0,trav:0};
-const input={rudder:0,throttle:1,depthCmd:20,fire:false,decoy:false,ping:false,mast:false,wire:0,silent:false,blow:false,team:-1,seal:-1,target:0,cmd:'',arg:0,launch:0,enable:0,runDepth:0,search:0,weapon:0,attack:0,route:0};
+const input={rudder:0,throttle:1,depthCmd:20,fire:false,decoy:false,ping:false,mast:false,wire:0,silent:false,blow:false,team:-1,seal:-1,target:0,cmd:'',arg:0,launch:0,enable:0,runDepth:0,search:0,band:0,weapon:0,attack:0,route:0};
 // Fire control on screen. open: the Solution card is open on the tabletop. set: the Settings pop-up is open. q: orders waiting to go to the simulation, one a step.
 const FC={open:false,set:false,q:[],gap:false,selStart:0,cutTick:-1,resKey:'',fanTick:-1};
 // tabletop: on a phone the plot is the main screen and the boat is steered by dragging a course line across it (see "tabletop" further down).
@@ -4460,6 +4466,7 @@ function shipDetail(kind){
 const SHIP_SHAPE={frigate:{bow:50,stern:-57,beam:5,sx:-24.5,sy:17.5,len:115},hulk:{bow:38,stern:-40,beam:5,sx:-4,sy:6,len:84},cargo:{bow:60,stern:-66,beam:8,sx:-53.5,sy:23.5,len:133},
   merchant:{bow:48,stern:-52,beam:7,sx:-46,sy:20.5,len:106},fishing:{bow:12,stern:-12,beam:2.6,sx:3,sy:6,len:26}};
 function makeShip(kind){
+  if(kind==='submarine') return makeSub();
   if(!SHIP_SHAPE[kind]) kind='frigate';
   const d=shipDetail(kind), o=new T.Group(), lo=new T.Mesh(d.lo,d.matLo||d.mat); o.add(lo); let hi=null, crew=null;
   if(d.hi){
@@ -4560,6 +4567,32 @@ const WIRE_N=8, wirePos=new Float32Array(WIRE_N*6), wireGeo=new T.BufferGeometry
 const wires=new T.LineSegments(wireGeo,new T.LineBasicMaterial({color:0xcfe8e0,transparent:true,opacity:0.45})); wires.frustumCulled=false; wires.visible=false; scene.add(wires);
 const TDISC_MAT=new T.MeshBasicMaterial({map:DISC_TEX,transparent:true,opacity:0.9,depthWrite:false,side:T.DoubleSide,clippingPlanes:[huntClip]});
 const BLOB_GEO=new T.PlaneGeometry(2,2), BLOB_MAT=new T.MeshBasicMaterial({map:DOT,color:0x05080a,transparent:true,opacity:0.6,depthWrite:false,clippingPlanes:[huntClip]});
+// The Duel: the Archer-class submarine, from public photographs: a long round hull, a sail well forward with planes on it, an X-shaped set of rudders at the
+// stern and one propeller. Nose at +x, the hull's centre line on y=0; no numbers and no flags. Two levels of detail, both drawn underwater.
+const ARCHER=(function(){
+  const HULL=0x24292c, BELLY=0x2f3537, SAIL=0x1f2326, PROP=0x6f6248;
+  const prof=n=>{ const a=[]; for(let i=0;i<=n;i++){ const x=-30+60*i/n, r=x>18?3*Math.sqrt(Math.max(0,1-Math.pow((x-18)/12,2))):x<-8?3*(1-0.88*Math.pow((-8-x)/22,1.7)):3; a.push(new T.Vector2(Math.max(r,x>=30?0:0.3),x)); } return a; };
+  const build=hi=>{
+    const P=[pc(latheX(prof(hi?40:14),hi?28:10),new T.Matrix4(),HULL)];
+    // the sail, its rounded leading edge, and in the detailed model the planes on its sides and the masts folded into its top
+    P.push(pc(new T.BoxGeometry(6.4,4.2,1.5),at(8.6,4.4,0),SAIL),pc(new T.CylinderGeometry(0.75,0.75,4.2,hi?12:6),at(11.8,4.4,0),SAIL));
+    if(hi){ P.push(pc(new T.BoxGeometry(1.7,0.14,6.2),at(9.4,5.1,0),SAIL),pc(new T.BoxGeometry(5.6,0.12,1.3),at(8.4,6.52,0),BELLY));
+      for(const [x,h] of [[9.6,0.9],[8.6,0.6],[7.4,0.75]]) P.push(pc(new T.CylinderGeometry(0.1,0.1,h,6),at(x,6.5+h/2,0),SAIL)); }
+    // the X of rudders: four fins at 45 degrees to the vertical, and the propeller behind them
+    for(let i=0;i<4;i++) P.push(pc(finGeo([[-22.5,0.6],[-28.6,0.5],[-28.3,3.6],[-25.6,3.6]],hi?0.24:0.3),new T.Matrix4().makeRotationX(HALF/2+i*HALF),SAIL));
+    P.push(pc(new T.ConeGeometry(0.42,1.4,hi?10:6),at(-30.6,0,0,0,0,HALF),PROP));
+    if(hi) for(let i=0;i<7;i++) P.push(pc(new T.BoxGeometry(0.16,1.7,0.5),new T.Matrix4().makeRotationX(i*TAU/7).multiply(at(-30.4,1.05,0,0.5,0,0)),PROP));
+    // a lighter belly, so its shape reads in the green dark
+    P.push(pc(new T.BoxGeometry(34,0.1,2.6),at(-1,-2.95,0),BELLY));
+    return mergeC(P);
+  };
+  return {lo:build(false),hi:build(true),len:60};
+})();
+// it hangs at its depth: no wake, no smoke, no bow wave. A record shaped like a ship's, so the rest of the picture code treats it as one.
+function makeSub(){
+  const o=new T.Group(), lo=new T.Mesh(ARCHER.lo,lifeMat), hi=new T.Mesh(ARCHER.hi,lifeMat); hi.visible=false; o.add(lo,hi); o.rotation.order='YXZ'; scene.add(o);
+  return {o:o,lo:lo,hi:hi,crew:null,det:null,k:0,outT:0,px:0,hp0:-1,tr:[],side:1,sub:true,len:ARCHER.len,bow:30,stern:-30,beam:3,sx:0,sy:0};
+}
 function makeHelo(){
   const o=new T.Group(); o.add(new T.Mesh(HELO.body,huntMat)); o.rotation.order='YZX'; scene.add(o);
   const rotor=new T.Mesh(HELO.rotor,huntMat); rotor.position.set(0,HELO.hub,0); rotor.rotation.y=PI/4; o.add(rotor);
@@ -4877,7 +4910,7 @@ const starText=n=>'★★★'.slice(0,n)+'☆☆☆'.slice(0,3-n);
 let SA=null, SB=null;
 function snap(){
   const st=G.st, p=st.player, e=new Map();
-  for(const s of st.ships) e.set(s.id,{x:s.x,z:s.z,y:0,h:s.h});
+  for(const s of st.ships) e.set(s.id,{x:s.x,z:s.z,y:s.kind==='submarine'?-s.depth:0,h:s.h});
   for(const h of st.helos) e.set(h.id,{x:h.x,z:h.z,y:h.alt,h:h.h});
   for(const t of st.torps) e.set(t.id,{x:t.x,z:t.z,y:t.phase==='chute'?t.alt:-t.depth,h:t.h});
   for(const b of st.bios) e.set(b.id,{x:b.x,z:b.z,y:-b.depth,h:b.h});
@@ -5152,6 +5185,13 @@ function syncEntities(dt,k){
     v.seen=frameNo;
     if(!pose(s.id,k)) continue;
     const x=_p.x-RS.ox, z=_p.z-RS.oz, c=Math.cos(_p.h), sn=Math.sin(_p.h), u=s.out?0:s.speed, camD=Math.hypot(x-cx,z-cz), near=camD<1000;
+    if(v.sub){
+      // the Archer at its depth, the detailed model when it is near; out of action it settles bow-down and sinks slowly, with no fire and no smoke
+      v.o.visible=G.running; const hi=camD<700; v.hi.visible=hi; v.lo.visible=!hi;
+      if(s.out) v.outT+=dt; else v.outT=0; const sink=ease(v.outT/60);
+      v.o.position.set(x,waterY+_p.y-6*sink,z); v.o.rotation.set(0,_p.h,-0.12*sink);
+      continue;
+    }
     if(camD<castD){ castD=camD; castV=v; }
     v.o.visible=G.running;
     // the detailed ship is shown while it is long enough on the screen (so the periscope's magnified view gets it from further away)
@@ -5401,7 +5441,7 @@ const GRADE=['None','Poor','Fair','Good'], DEG=180/PI;
 const fcEl=$('fc'), fcWho=$('fc-who'), fcGrade=$('fc-grade'), fcR=$('fc-r'), fcC=$('fc-c'), fcS=$('fc-s'), fcRes=$('fc-res'), fcResG=fcRes.getContext('2d'), fcNote=$('fc-note'), fcAuto=$('fc-auto');
 const wpnEl=$('wpn'), wpSeek=$('wp-seek'), wpState=$('wp-state'), wpFan=$('wp-fan'), wpFanG=wpFan.getContext('2d'), wpLock=$('wp-lock'), wpNext=$('wp-next'), wpRet=$('wp-ret'), wpRej=$('wp-rej'), wpSum=$('wp-sum'), wpSetB=$('wp-setb');
 const tsetEl=$('tset'), tsNote=$('ts-note'), setBtn=$('t-set');
-const PRESETS=[['launch','Launch',['Swim-out','Impulse']],['enable','Enable',['Auto','Short','Long']],['runDepth','Run depth',['Shallow','Deep']],['search','Search',['Straight','Snake','Circle']]];
+const PRESETS=[['launch','Launch',['Swim-out','Impulse']],['enable','Enable',['Auto','Short','Long']],['runDepth','Run depth',['Shallow','Deep']],['search','Search',['Straight','Snake','Circle']],['band','Search depth',['Shallow','Deep']]];
 const SROWS=PRESETS.map(q=>Array.from(tsetEl.querySelector('[data-k="'+q[0]+'"]').querySelectorAll('button')));
 // Stage J: the Weapon row, the missile's Attack row, and the Tubes row with its Cancel swap button
 const ATTACKS=['Sea-skim','Pop-up'], tsWeapon=Array.from(tsetEl.querySelector('[data-k="weapon"]').querySelectorAll('button')), tsAttack=Array.from(tsetEl.querySelector('[data-k="attack"]').querySelectorAll('button')), tsCancel=$('ts-cancel');
@@ -5426,6 +5466,8 @@ function setSettings(on){
   FC.set=on; tsetEl.hidden=!on; document.body.classList.toggle('setopen',on); setBtn.setAttribute('aria-expanded',on?'true':'false'); wpSetB.setAttribute('aria-expanded',on?'true':'false');
   if(on){ setCard(false); tbMenu(false); tbObj(false); settingsHud(); } layout();
 }
+// the Duel: fire control suggests Deep when the target is a contact classified Submarine
+function subTarget(){ if(!G.sel) return false; const c=G.st.contacts.find(c=>c.id===G.sel); return !!c&&c.cls==='submarine'; }
 function setPreset(i,v){ if(!playing()) return; const q=PRESETS[i]; input[q[0]]=clamp(v,0,q[2].length-1); say(q[1]+': '+q[2][input[q[0]]]+'.',0,2); if(FC.set) settingsHud(); }
 // the Settings pop-up: the choice in each row, and what a launch at this moment would do with them
 function settingsHud(){
@@ -5443,9 +5485,9 @@ function settingsHud(){
     setText(tsNote,(!g.ok?g.text:g.direct?'Too close for a dog-leg: a launch now would fly direct.':g.route?'A launch now would be accepted: it flies out to the '+(g.route===1?'left':'right')+' and turns in from the side.':'A launch now would be accepted: it flies to where the solution puts the ship.')+' Ready: '+p.readyT+' T, '+p.readyM+' M. Rack '+p.rack.torpedo+' T, '+p.rack.missile+' M.'+sw);
     setClass(tsNote,g.ok&&!g.direct?'':'warn');
   }else{
-    const m=G.sim.plan(G.sel,input.launch,input.enable,input.runDepth);
-    setText(tsNote,(m.aimed?'Aimed by the solution.':'No solution: it runs along the bow.')+' Seeker enables after '+far(m.enable)+'.'+(m.close?' Too close for a deep run: it climbs at once.':'')+(m.beyond?' Warning: target is beyond torpedo reach.':'')+(G.table?'':sw));
-    setClass(tsNote,m.close||m.beyond?'warn':'');
+    const m=G.sim.plan(G.sel,input.launch,input.enable,input.runDepth), deep=subTarget()&&!input.band;
+    setText(tsNote,(m.aimed?'Aimed by the solution.':'No solution: it runs along the bow.')+' Seeker enables after '+far(m.enable)+'.'+(m.close?' Too close for a deep run: it climbs at once.':'')+(m.beyond?' Warning: target is beyond torpedo reach.':'')+(deep?' The target is a submarine: set Search depth to Deep.':'')+(G.table?'':sw));
+    setClass(tsNote,m.close||m.beyond||deep?'warn':'');
   }
   if(redo) layout();
 }
@@ -5641,6 +5683,7 @@ const HINTS_ON=!TEST||QS.get('hints')==='1', HINTS=[
   ['classify',st=>{ const c=mainContact(); return !!c&&!c.cls&&st.t>14; },()=>'Unknown contact: keep listening to classify it. You hear best slow and quiet. Neutral ships must not be hit.'],
   ['shoot',(st,p)=>{ const c=mainContact(); return !!c&&c.kind==='ship'&&!!c.cls&&!NEUTRAL[c.cls]&&p.readyT>0&&(c.sig>=0.27||(c.range>0&&c.range<2200)); },()=>'Close enough to shoot: '+(G.table?'tap the contact to make it the target, then press Fire. Fire control aims by its solution; with no target the torpedo runs along the bow.':touchMode()?'point the bow at the contact and press Fire.':'press N to make it the target, then Space. Fire control aims by its solution; with no target the torpedo runs along the bow.')],
   ['missile',st=>{ if(!SIM.MISSIONS[st.mission].combat||!G.sel) return false; const k=trackOf(G.sel); return !!k&&k.sol.g>=GV.missile.grade&&G.sim.plan(G.sel,input.launch,input.enable,input.runDepth).beyond; },()=>'Beyond torpedo reach: choose Missile (Y, or SET) and fire. It has no wire, and they will know where you launched.'],
+  ['deep',()=>subTarget()&&!input.band,()=>'The target is a submarine: a Shallow torpedo passes over it. '+(touchMode()?'Open Settings and set Search depth to Deep.':'Press 9 to set Search depth to Deep.')],
   ['update',(st,p)=>p.mast&&p.mastT>=1.5&&st.missiles.some(m=>m.phase!=='capsule'),()=>'Mast up with a missile in flight: '+(G.table?'tap Update':touchMode()?'open the plot and tap Update':'press Z')+' to send it the current solution.'],
   ['salvo',()=>mDown,()=>'Two missiles together are harder to stop.'],
   ['wire',(st,p)=>!!p.wireId,()=>'Your torpedo is on its wire: '+(touchMode()?'hold Wire L or Wire R':'hold , or .')+' to steer it. Stay at Half or slower and turn gently.'],
@@ -5710,7 +5753,7 @@ function hud(dt){
   // the sound signature of that contact: what listening has worked out so far
   if(ship){
     const id=ship.ident||0, bio=ship.kind==='bio', stopped=!bio&&id>=0.35&&!ship.shaft;
-    setText(sgCls,ship.cls==='bio'?'Biologic · '+BIO[ship.bio]:ship.cls?CLS[ship.cls]+(NEUTRAL[ship.cls]?' · neutral':''):'Unknown'); setClass(sgCls,!ship.cls?'':ship.cls==='bio'?'bio':NEUTRAL[ship.cls]?'neutral':ship.cls==='hulk'?'':'hostile');
+    setText(sgCls,ship.cls==='bio'?'Biologic · '+BIO[ship.bio]:ship.cls?CLS[ship.cls]+(NEUTRAL[ship.cls]?' · neutral':'')+layerNote(ship):'Unknown'); setClass(sgCls,!ship.cls?'':ship.cls==='bio'?'bio':NEUTRAL[ship.cls]?'neutral':ship.cls==='hulk'?'':'hostile');
     setStyle(sgFill,'width',(clamp(id,0,1)*100).toFixed(0)+'%');
     // sea life has no machinery to hear: no shaft rate ever shows, only sounds that come and go
     setClass(sgTxt.parentNode,bio&&id>=0.35?'sgrow two':'sgrow');   // the line for sea life is longer, and may take two rows
@@ -5755,7 +5798,7 @@ function tableHud(st,p,hd){
   const show=!!(t||c); if(tbCon.hidden===show) tbCon.hidden=!show;
   if(show){
     const cls=c?c.cls:t.cls, life=cls==='bio', bio=c?c.bio:t.bio, stale=!c&&t.age>2, id=c?c.ident||0:0;
-    setText(tbConKids[0],life?'Biologic \u00b7 '+BIO[bio]:cls?CLS[cls]+(NEUTRAL[cls]?' \u00b7 neutral':''):'Unknown'); setClass(tbConKids[0],!cls?'':life?'bio':NEUTRAL[cls]?'neutral':cls==='hulk'?'':'hostile');
+    setText(tbConKids[0],life?'Biologic \u00b7 '+BIO[bio]:cls?CLS[cls]+(NEUTRAL[cls]?' \u00b7 neutral':'')+layerNote(c||t):'Unknown'); setClass(tbConKids[0],!cls?'':life?'bio':NEUTRAL[cls]?'neutral':cls==='hulk'?'':'hostile');
     setText(tbConKids[1],'Bearing '+hdgText(c?c.brg:t.brg)+(stale?(cls==='hulk'?' \u00b7 last seen ':' \u00b7 last heard ')+t.age+' s ago':''));
     { const q=t?t.sol:null; setText(tbConKids[2],(c&&c.range>0?'Range '+Math.round(c.range/10)*10+' m':q&&q.r!==null?'Range '+Math.round(q.r/10)*10+' m ± '+Math.max(10,Math.round(q.rs/10)*10):'Range not known yet')+(t&&t.out?' · out of action':'')); }
     setText(tbConKids[3],!c||life||cls==='hulk'||id<0.35?'':c.shaft?'Shaft '+c.shaft+' rpm \u00b7 '+(c.blades?c.blades+' blades':'blades ?'):'No shaft turning');
@@ -5975,7 +6018,7 @@ function drawMap(){
   TB.hits.length=0;
   for(let ti=0, nt=st.tracks.length+st.btracks.length;ti<nt;ti++){
     const t=ti<st.tracks.length?st.tracks[ti]:st.btracks[ti-st.tracks.length], life=t.cls==='bio', rgb=life?C_BIO_RGB:'255,194,71', live=life?C_BIO:'#ffc247';
-    const name=life?'Biologic: '+BIO[t.bio]:(CLS[t.cls]||'Unknown')+(NEUTRAL[t.cls]?' (neutral)':''), stale=t.age>2, q=t.sol, firm=q.fit&&q.r!==null, x=X(t.x), y=Y(t.z);
+    const name=life?'Biologic: '+BIO[t.bio]:(CLS[t.cls]||'Unknown')+(NEUTRAL[t.cls]?' (neutral)':'')+(t.layer?', '+t.layer+' the layer':''), stale=t.age>2, q=t.sol, firm=q.fit&&q.r!==null, x=X(t.x), y=Y(t.z);
     g.lineWidth=1;
     for(const l of t.lines){ const al=(life?0.25:0.4)*Math.max(0.15,1-(st.t-l.t)/130); g.strokeStyle='rgba('+rgb+','+al.toFixed(2)+')'; g.beginPath(); g.moveTo(X(l.x),Y(l.z)); g.lineTo(X(l.x+Math.cos(l.b)*out),Y(l.z-Math.sin(l.b)*out)); g.stroke(); }
     if(!stale){ g.strokeStyle='rgba('+rgb+','+(life?0.6:0.9)+')'; g.lineWidth=1.5; g.beginPath(); g.moveTo(bx,by); g.lineTo(bx+Math.cos(t.brg)*out*k,by-Math.sin(t.brg)*out*k); g.stroke(); }
@@ -6208,7 +6251,9 @@ const COACH={
 const OPENING={firstblood:'The frigate is somewhere to the north. Close in quietly and listen.',gate:'The exit zone is to the north, past the line the frigate patrols. Open the map to plan the crossing.',
   hunted:'They have you. Dive below the layer, turn away and open the range.',strait:'The high-value ship is coming down its route. Open the map, then close in below the layer.',patrol:'A frigate is on its way to your position. Listen for it.'};
 const OPENING_TABLE={gate:'The exit zone is to the north, past the line the frigate patrols. Both are marked on the plot.',strait:'The high-value ship is coming down the route marked on the plot. Close in below the layer.'};   // on the tabletop the map is already open
-const shipName=kind=>kind==='hulk'?'hulk':kind==='cargo'?'high-value ship':kind==='merchant'?'merchant ship':kind==='fishing'?'fishing boat':'frigate';
+const shipName=kind=>kind==='hulk'?'hulk':kind==='cargo'?'high-value ship':kind==='merchant'?'merchant ship':kind==='fishing'?'fishing boat':kind==='submarine'?'submarine':'frigate';
+// a ship as the captain knows it: by its class once sonar or the periscope has classified it, otherwise only as a ship
+function knownShip(id,neutral){ const c=G.st.contacts.find(q=>q.id===id), k=trackOf(id), cls=(c&&c.cls)||(k&&k.cls); return cls&&cls!=='bio'?(NEUTRAL[cls]?'a neutral ':'the ')+shipName(cls):'a ship you have not identified'; }
 function onEvent(e){
   const st=G.st, p=st.player, x=(e.x||0)-RS.ox, z=(e.z||0)-RS.oz, d=Math.hypot(x,z);
   switch(e.type){
@@ -6256,12 +6301,15 @@ function onEvent(e){
       else blast(x,waterY-3,z,1);
       boom(d); if(d<700) SHAKE=Math.max(SHAKE,1.2*(1-d/700)); eyeHit(e.ship);
       // a weapon that is not the boat's (foe): the hit is told plainly, with no credit and no penalty, for it costs the captain nothing
-      if(e.foe) say('A torpedo has hit '+(e.neutral?'a neutral ':'the ')+shipName(e.kind)+'.',1,5);
+      if(e.foe) say('A torpedo that is not yours has hit '+knownShip(e.ship)+'.',1,5);
       else if(e.neutral){ sfxTone(196,0.9,0.16); say('Your '+(e.weapon==='missile'?'missile':'torpedo')+' hit a neutral '+shipName(e.kind)+'. '+(ENDLESS(st.mission)?'Points are lost.':G.difficulty==='hard'?'That ends the mission.':'That costs a star.'),2,7); }
       else say(SIM.hitText(e),1,4); } break;
-    case 'shipOut': if(e.kind!=='hulk'&&!e.neutral) say('The '+shipName(e.kind)+' is out of action.',1,6); break;
+    case 'shipOut':
+      // a submarine out of action: air rising to the surface above it, and nothing more to hear from it
+      if(e.kind==='submarine'){ splash(x,z,140,7,4); say('Air rising to the surface: the Archer is out of action.',1,6); break; }
+      if(e.kind!=='hulk'&&!e.neutral) say('The '+shipName(e.kind)+' is out of action.',1,6); break;
     case 'objective': say(st.objective,1,7); layout(); break;
-    case 'wave': if(e.wave>1) say('Wave '+e.wave+': '+(e.ships>1?e.ships+' more frigates are':'another frigate is')+' closing in.',1,5); break;
+    case 'wave': if(e.wave>1&&!e.sub) say('Wave '+e.wave+': '+(e.ships>1?e.ships+' more frigates are':'another frigate is')+' closing in.',1,5); break;
     case 'score':
       if(e.neutral){ if(e.add<0) say((e.bio?'Torpedo set off among sea life: ':'Neutral ship hit: ')+(-e.add)+' points lost.',2,7); }
       else{ sfxNotes('score',1,'sine',0.14,[[660,0,0.25],[880,0.16,0.4]]); say('Frigate out of action: '+e.add+' points. Two torpedoes and a noisemaker restocked.',1,6); }
@@ -6283,13 +6331,15 @@ function onEvent(e){
     case 'shipDecoy': say('The frigate has dropped a noisemaker. Watch the seeker view: reject a lock that reads stationary, no machinery.',1,5); break;
     case 'shipFire': splash(x,z,60,6,1.2); sfxAlarm(); say('The frigate has fired a torpedo, bearing '+brgText(e.x,e.z)+'! Noisemaker, turn away, go deep.',2,6); break;
     case 'homing':
+      // a torpedo that is not the boat's says what it locked on to (on); one the boat cannot hear yet (quiet) is not told at all
+      if(e.on){ if(e.quiet) break; if(e.on==='you'){ sfxAlarm(); say('A torpedo has locked on to you! Release a noisemaker, turn away and go deep.',2,6); } else say('A torpedo is homing on '+(e.on==='pod'?'sea life':e.on==='neutral'&&!e.kind?'a ship you have not identified':e.on==='neutral'?'a neutral '+shipName(e.kind):'a ship')+'.',1,4); break; }
       if(e.side===1){ if(e.decoy) say('The torpedo has gone for your noisemaker. Open the range.',1,5); else{ sfxAlarm(); say('The torpedo has locked on to you! Release a noisemaker, turn away and go deep.',2,6); } }
       else if(e.kind==='bio') say('Your torpedo is homing on sea life! Reject the lock while its wire holds.',2,6);
       else if(NEUTRAL[e.kind]) say('Your torpedo is homing on a neutral '+shipName(e.kind)+'! Reject the lock while its wire holds.',2,6);
       else say('Your torpedo has a lock and is homing. The seeker view shows what it hears.',0,3.5);
       break;
     // a lock on a noisemaker is announced exactly as a lock on a ship is: what the seeker view says of the lock is the only clue
-    case 'fooled': say('Your torpedo has a lock and is homing. The seeker view shows what it hears.',0,3.5); break;
+    case 'fooled': if(e.foe){ if(!e.quiet) say('The torpedo has gone for a noisemaker.',1,4); break; } say('Your torpedo has a lock and is homing. The seeker view shows what it hears.',0,3.5); break;
     case 'lostLock': say(e.decoy?'The torpedo has lost the noisemaker and is searching again.':'The torpedo has lost you.',1,4); break;
     case 'decoy':
       sfxNoise(0.9,900,260,0.22,'decoy');
@@ -6312,7 +6362,7 @@ function onEvent(e){
     case 'mastSeen': mastSayT=st.t; sfxTone(620,0.5,0.14); say('Your mast has been seen by the '+(e.by==='helo'?'helicopter':'frigate')+'! Lower it and go deep.',2,5); break;
     case 'buoy': if(d<1500) splash(x,z,26,3.5,0.7); if(e.known&&st.t-buoySayT>30){ buoySayT=st.t; say('Sonobuoy in the water, bearing '+brgText(e.x,e.z)+'. Stay quiet near it.',1,4); } break;
     case 'coach': sfxTone(880,0.25,0.1); say(COACH[e.key]?COACH[e.key]():'',1,12); layout(); break;
-    case 'torpEnd': say(e.side===1?'The enemy torpedo has run out of fuel.':'Your torpedo ran out of fuel without a hit.',e.side===1?1:0,4); break;
+    case 'torpEnd': if(e.quiet) break; say(e.side===1?'The enemy torpedo has run out of fuel.':'Your torpedo ran out of fuel without a hit.',e.side===1?1:0,4); break;
     case 'drop': say('The helicopter has dropped a torpedo, bearing '+brgText(e.x,e.z)+'!',2,4); break;
     case 'splash': splash(x,z,90,9,1.5); sfxAlarm(); say('Torpedo in the water, bearing '+brgText(e.x,e.z)+'! Go deep and stay quiet.',2,6); break;
     case 'playerHit': blast(x,RS.depth-e.depth,z,0); boom(0); SHAKE=1.6; subK=1; say('Torpedo hit in the '+GV.dmg.names[e.sec]+'! Go shallower, keep some speed, and send the team ('+(touchMode()?'tap the damage picture':'key '+(e.sec+1))+').',2,6); break;
@@ -6381,7 +6431,7 @@ function simStep(){
 }
 function newGame(seed){
   G.seed=seed; G.sim=SIM.createSim({mission:G.mission,seed:seed,difficulty:G.difficulty}); G.st=G.sim.state; G.sim.events.length=0;
-  Object.assign(input,{rudder:0,throttle:1,depthCmd:20,fire:false,decoy:false,ping:false,mast:false,wire:0,silent:false,blow:false,team:-1,seal:-1,target:0,cmd:'',arg:0,launch:0,enable:0,runDepth:0,search:0,weapon:0,attack:0,route:0});
+  Object.assign(input,{rudder:0,throttle:1,depthCmd:20,fire:false,decoy:false,ping:false,mast:false,wire:0,silent:false,blow:false,team:-1,seal:-1,target:0,cmd:'',arg:0,launch:0,enable:0,runDepth:0,search:0,band:0,weapon:0,attack:0,route:0});
   FC.q.length=0; FC.gap=false; FC.selStart=0; FC.cutTick=-1; FC.resKey=''; setCard(false); setSettings(false);      // a new game starts with the default torpedo settings and nothing open
   DM.blowT=0; DM.sealI=-1; DM.leap=0; DM.smokeT=0; if(DM.open) setDmg(false);
   TB.course=null; TB.drag=null; TB.want=true;
@@ -6454,7 +6504,7 @@ const nextMission=m=>{ const i=MISSION_IDS.indexOf(m); return i>=0?MISSION_IDS[i
 /* ---------- controls: keyboard, thumb pad, depth gauge and buttons all write the same input object ---------- */
 const keys={left:false,right:false,shallower:false,deeper:false,wireL:false,wireR:false}, hold={wl:false,wr:false};
 const KEYMAP={KeyW:'faster',ArrowUp:'faster',KeyS:'slower',ArrowDown:'slower',KeyA:'left',ArrowLeft:'left',KeyD:'right',ArrowRight:'right',KeyQ:'shallower',KeyE:'deeper',Space:'fire',KeyP:'ping',KeyC:'silent',
-  BracketLeft:'course-',BracketRight:'course+',Minus:'speed-',Equal:'speed+',KeyO:'auto',KeyU:'restart',KeyI:'settings',KeyJ:'nextTorp',KeyK:'retarget',KeyL:'reject',Digit5:'preset0',Digit6:'preset1',Digit7:'preset2',Digit8:'preset3',
+  BracketLeft:'course-',BracketRight:'course+',Minus:'speed-',Equal:'speed+',KeyO:'auto',KeyU:'restart',KeyI:'settings',KeyJ:'nextTorp',KeyK:'retarget',KeyL:'reject',Digit5:'preset0',Digit6:'preset1',Digit7:'preset2',Digit8:'preset3',Digit9:'preset4',
   KeyY:'weapon',KeyZ:'mupdate',KeyX:'decoy',KeyM:'map',KeyV:'scope',KeyR:'mast',KeyT:'time',KeyF:'view',KeyN:'next',Comma:'wireL',Period:'wireR',Escape:'esc',KeyH:'help',
   KeyB:'blow',KeyG:'dmg',Digit1:'team1',Digit2:'team2',Digit3:'team3',Digit4:'team4',Numpad1:'team1',Numpad2:'team2',Numpad3:'team3',Numpad4:'team4'};
 const playing=()=>G.running&&!G.paused&&!G.st.over;
@@ -6685,7 +6735,7 @@ if(TEST){
       whales:LIFE.whale.count,tails:LIFE.tail.count,whalesLo:LIFE.whaleLo.count,dolphins:LIFE.dolphin.count,dolphinsLo:LIFE.dolphinLo.count,fish:LIFE.fish.count,fishMax:FISH_N,spouts:LIFE.spouts,splashes:LIFE.splashes,drops:DROPS.live+MIST.live,
       tris:{whale:(WHALE_GEO.attributes.position.count+WHALE_TAIL_GEO.attributes.position.count)/3,whaleLo:WHALE_LO_GEO.attributes.position.count/3,dolphin:DOLPHIN_GEO.attributes.position.count/3,dolphinLo:DOLPHIN_LO_GEO.attributes.position.count/3}}; },
     lifeAt(id,i){ const b=G.st.bios.find(q=>q.id===id); if(!b) return null; const v=LIFE.v.get(id), m=lifeAt(b,i||0,b.x,b.z,b.h,G.st.t+G.st.afterT,v?v.s:0); return {x:m.x,z:m.z,d:m.d,h:m.h,p:m.p,g:m.g}; },
-    get lod(){ return Array.from(SHIPS,q=>({id:q[0],detail:!!(q[1].hi&&q[1].hi.visible),px:Math.round(q[1].px),crew:!!(q[1].crew&&q[1].crew.visible)})); },
+    get lod(){ return Array.from(SHIPS,q=>({id:q[0],detail:!!(q[1].hi&&q[1].hi.visible),px:Math.round(q[1].px),crew:!!(q[1].crew&&q[1].crew.visible),sub:!!q[1].sub,y:+q[1].o.position.y.toFixed(1)})); },
     // where things are on the screen, for the layout checks: the boat's box, and each sonobuoy
     get boatBox(){ const b=new T.Box3().setFromObject(sub), v=new T.Vector3(); let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
       for(let i=0;i<8;i++){ v.set(i&1?b.max.x:b.min.x,i&2?b.max.y:b.min.y,i&4?b.max.z:b.min.z).project(camera); const x=(v.x+1)/2*W, y=(1-v.y)/2*H; x0=Math.min(x0,x); y0=Math.min(y0,y); x1=Math.max(x1,x); y1=Math.max(y1,y); }

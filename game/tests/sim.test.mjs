@@ -333,8 +333,42 @@ function raider() {
     return overShoals(st, inp);
   };
 }
+// Silent Hunt. The stalker: it creeps quiet and slow at the depth the Archer's layer note gives, zigzags so its sonar can range it, fires one Deep torpedo
+// on a good solution within 3 km, holds the wire, then clears off and goes again; any torpedo it hears, it runs from, deep, with a noisemaker.
+const couldSub = c => c.kind === 'ship' && (c.cls ? c.cls === 'submarine' : (!c.blades || c.blades === 7));
+const pickSub = st => { let known = null, unk = null; for (const c of st.contacts) { if (!couldSub(c)) continue; if (c.cls) { if (!known || c.sig > known.sig) known = c; } else if (!unk || c.sig > unk.sig) unk = c; } return known || unk; };
+function stalker() {
+  return () => {
+    const mem = { shots: 0, pulse: false, hold: false, clearUntil: -1, side: 1, lastTorp: 0, legT: 0, zig: 1, last: null, lastT: -1e9, deepT: 0 };
+    return st => {
+      const p = st.player, inp = blank(), torp = strongest(st, 'torp'); let sub = pickSub(st);
+      if (sub) { mem.last = sub; mem.lastT = st.t; }
+      const wired = st.torps.some(t => t.side === 0 && t.wire), { k, q } = solutionOf(st, sub);
+      if (sub) inp.target = sub.id;
+      presets(inp); inp.band = 1; nurse(st, inp, sub);
+      const above = Math.max(25, st.layer - 20), below = st.layer + 30, side = sub && sub.layer ? (sub.layer === 'below' ? below : above) : (Math.floor(st.t / 150) % 2 ? below : above);
+      if (torp) { evade(st, inp, torp, mem, true); mem.hold = false; return inp; }
+      if (mem.hold) { if (wired && sub) { steer(inp, p, sub.brg, 0.7); inp.throttle = 1; inp.depthCmd = side; return overShoals(st, inp); } mem.hold = false; mem.clearUntil = st.t + 40; mem.side = -mem.side; }
+      if (st.t < mem.clearUntil) { if (sub) steer(inp, p, sub.brg + mem.side * PI * 0.6); inp.throttle = 2; inp.depthCmd = side; return overShoals(st, inp); }
+      inp.depthCmd = side;
+      if (!sub) {
+        // nothing heard: creep on, quiet, towards where it was last heard (or straight on), and turn now and then so the sonar's blind arc astern is covered
+        if (mem.last && st.t - mem.lastT < 300) steer(inp, p, mem.last.brg); else inp.rudder = Math.floor(st.t / 90) % 3 === 0 ? 0.3 : 0;
+        inp.throttle = 1; inp.silent = true; return overShoals(st, inp);
+      }
+      if (st.t - mem.legT > 40) { mem.legT = st.t; mem.zig = -mem.zig; }
+      steer(inp, p, sub.brg + mem.zig * 0.8); inp.throttle = 1; inp.silent = p.readyT >= 1;
+      const good = !!q && q.fit && q.r !== null && q.g >= 2 && q.r < 3000 && st.t - k.turnT > 20;
+      if (sub.cls === 'submarine' && good && p.readyT > 0 && !wired) {
+        mem.pulse = !mem.pulse; inp.fire = mem.pulse; inp.silent = false;
+        if (st.stats.fired > mem.shots) { mem.shots = st.stats.fired; mem.hold = true; }
+      }
+      return overShoals(st, inp);
+    };
+  };
+}
 // Free Patrol. The First Blood attack, repeated on whichever frigate is loudest.
-const PLAYERS = { shakedown: trainee, gate: sneak, firstblood: attacker(), hunted: survivor, strait: raider, patrol: attacker() };
+const PLAYERS = { shakedown: trainee, gate: sneak, firstblood: attacker(), hunted: survivor, strait: raider, patrol: attacker(), duel: stalker() };
 
 /* ---------- runner ---------- */
 function finite(o, path, bad) {
@@ -384,18 +418,19 @@ const t0 = Date.now();
 const SEEDS = [11, 23, 37, 41, 59], table = [], graded = [];
 // Stage I: the share of 40 games (seeds 500 to 539) the scripted player must win in each mission
 const mRandom = {};
-const PASS_MARK = { shakedown: 1, gate: 1, firstblood: 0.85, hunted: 0.7, strait: 0.8 };
+const PASS_MARK = { shakedown: 1, gate: 1, firstblood: 0.85, hunted: 0.7, strait: 0.8, duel: 0.6 };
 for (const id of want('missions') ? Object.keys(MISSIONS) : []) {
   const M = MISSIONS[id], player = PLAYERS[id], parts = [];
   if (M.endless) continue;
   // 1. the scripted player wins: at least the mission's pass mark over 40 seeds; and the fixed seed, and at least 4 of 5 other seeds.
   // In Hunted the six fixed seeds are printed but not counted: its pass mark is 70%, and at that rate (or at the 83% measured over 160 seeds, the same before
   // and after Stage I) six games cannot be asked to come out 1 and 4 of 5. Stage I took the old range-bias draws out of the shared random stream, so the same
-  // seed now deals the other side different dice; its code and its game values are unchanged.
+  // seed now deals the other side different dice; its code and its game values are unchanged. Silent Hunt is the same: it is tuned to about 70% (the Duel plan).
+  const loose = id === 'hunted' || id === 'duel';
   const fixed = run(id, 1, player), tries = SEEDS.map(s => run(id, s, player)), wins = tries.filter(r => r.result === 'win').length;
   const won40 = rate(40, i => run(id, 500 + i, player).result === 'win'), six = fixed.result === 'win' && wins >= 4;
   parts.push([won40 >= PASS_MARK[id], 'scripted wins ' + pct(won40) + ' of 40 seeds (pass mark ' + pct(PASS_MARK[id]) + ')']);
-  parts.push([six || id === 'hunted', 'scripted wins ' + wins + '/5' + (fixed.result === 'win' ? '' : ' but loses seed 1') + (six ? '' : ' (' + (id === 'hunted' ? 'not counted in Hunted; ' : '') + [fixed].concat(tries).map((r, i) => r.result === 'win' ? '' : 'seed ' + [1].concat(SEEDS)[i] + ': ' + r.state.reason + ' at ' + Math.round(r.t) + ' s').filter(Boolean).join('; ') + ')')]);
+  parts.push([six || loose, 'scripted wins ' + wins + '/5' + (fixed.result === 'win' ? '' : ' but loses seed 1') + (six ? '' : ' (' + (loose ? 'not counted in ' + M.name + '; ' : '') + [fixed].concat(tries).map((r, i) => r.result === 'win' ? '' : 'seed ' + [1].concat(SEEDS)[i] + ': ' + r.state.reason + ' at ' + Math.round(r.t) + ' s').filter(Boolean).join('; ') + ')')]);
   // 2. an idle player fails, on every one of those seeds; in Hunted, where waiting is the way to win, it must lose the boat
   const lazy = [1].concat(SEEDS).map(s => run(id, s, idle));
   parts.push([lazy.every(r => r.over && r.result === 'lose' && (id !== 'hunted' || r.lost)), 'idle fails' + (id === 'hunted' ? ' (the boat is lost)' : '')]);
@@ -600,9 +635,9 @@ if (want('sealife')) {
     }
   }
   const fixed = Object.keys(MISSIONS).filter(id => MISSIONS[id].life), few = counts.shakedown, all = id => ['whale', 'dolphin', 'fish'].every(k => kinds[id + ' ' + k]);
-  parts.push([fixed.length === 5 && fixed.every(id => counts[id].every(n => n === MISSIONS[id].life.length) && all(id)) && few.every(n => n === 3) && fixed.every(id => MISSIONS[id].life.length >= 3) && counts.patrol.every(n => n >= 2 && n <= B.max),
+  parts.push([fixed.length === 6 && fixed.every(id => counts[id].every(n => n === MISSIONS[id].life.length) && all(id)) && few.every(n => n === 3) && fixed.every(id => MISSIONS[id].life.length >= 3) && counts.patrol.every(n => n >= 2 && n <= B.max),
     'pods per game: ' + fixed.map(id => MISSIONS[id].name + ' ' + counts[id][0]).join(', ') + ', Free Patrol ' + Math.min(...counts.patrol) + ' to ' + Math.max(...counts.patrol) + '; whales, dolphins and fish in every mission']);
-  parts.push([nearStart >= 450 && nearRoute >= 450 && farHome < 1.3 && lazy === 0, 'over 10 minutes in 60 games none comes within ' + Math.round(Math.min(nearStart, nearRoute)) + ' m of the start or a marked route; all ' + pods + ' wander, none beyond ' + farHome.toFixed(2) + ' of its range']);
+  parts.push([nearStart >= 450 && nearRoute >= 450 && farHome < 1.3 && lazy === 0, 'over 10 minutes in ' + Object.keys(MISSIONS).length * 10 + ' games none comes within ' + Math.round(Math.min(nearStart, nearRoute)) + ' m of the start or a marked route; all ' + pods + ' wander, none beyond ' + farHome.toFixed(2) + ' of its range']);
   // the boat can sail straight through dolphins or fish: nothing is hit and nothing is lost. Through whales it brushes one (Stage G): a small jolt,
   // no breach, the animal unharmed and the pod scattering, and nothing that counts against the mission but the "no damage" star
   let through = 0, bumps = 0, tries = 0;
@@ -1859,6 +1894,94 @@ if (want('replay')) {
     [mSame === M_GAMES.length, mSame + '/' + M_GAMES.length + ' missile games (' + mSteps + ' steps) end in exactly the same state when their orders are played back'],
     [mOut.launched >= 6 && mOut.hit >= 1 && down >= 1 && mOut.decoyed >= 1 && mOut.missed >= 1 && flying >= 0, 'missile launches accepted across the replay set: ' + mOut.launched + ' (' + inMissions.launched + ' in the 18 mission games, against ' + (inMissions.poor || 0) + ' launches refused there for the solution; they ended as hit ' + (inMissions.hit || 0) + ', shot down ' + ((inMissions.sam || 0) + (inMissions.gun || 0)) + ', decoyed ' + (inMissions.decoyed || 0) + ', missed ' + (inMissions.missed || 0) + '; ' + mGames.launched + ' in the missile games); in all they ended as: hit ' + mOut.hit
       + ', shot down ' + down + ' (' + mOut.sam + ' by a defence missile, ' + mOut.gun + ' by the gun), decoyed ' + mOut.decoyed + ', missed ' + mOut.missed + (flying ? ', still in flight when the game stopped ' + flying : '')]]);
+}
+// The Duel (the plan, PR 2: tasks/todo.md). The Archer's rules, what the captain is never told while only the Archer hunts, and the balance rows of the
+// design (section 7.7), each measured over 200 seeds and held within 10 points of its target.
+if (want('duel')) {
+  const V = SIM.V, A = V.archer, TAU = 2 * PI, parts = [], sub = st => st.ships.find(s => s.kind === 'submarine');
+  const world = seed => { const g = createSim({ mission: 'duel', seed }), st = g.state; return { g, st, p: st.player, a: sub(st) }; };
+  // 1. its noise is the boat's curve times 1.15, plus its own transient; the boat's own noise follows the same curve
+  { const { g, st, a } = world(3); let worst = 0; for (let i = 0; i < 30 * 120; i++) { g.step(STEP, { throttle: 2 }); g.events.length = 0; worst = Math.max(worst, Math.abs(a.noise - (SIM.hullNoise(a.speed, a.depth) + a.spike) * A.noise)); }
+    parts.push([A.noise === 1.15 && worst < 1e-12, 'its noise is the boat\'s curve times ' + A.noise + ' (largest difference over 120 s: ' + worst + ')']); }
+  // 2. it sees a raised mast only from periscope depth: deep, the mast up or down makes no difference at all; at periscope depth the mast is seen
+  { const look = (seed, deep, mast) => { const { g, st, p, a } = world(seed); a.x = p.x + 2500; a.z = p.z; a.mode = 'listen'; a.modeT = 1e9; a.depth = a.wantD = deep ? st.layer + 30 : V.periscope; p.depth = V.periscope;
+      let hit = false; for (let i = 0; i < 30 * 90; i++) { a.modeT = 1e9; a.wantD = a.depth; g.step(STEP, { throttle: 0, depthCmd: V.periscope, mast: mast, silent: true }); g.events.length = 0; if (a.pic.base >= 2) hit = true; } return { pic: JSON.stringify(a.pic), hit }; };
+    let same = 0, upSeen = 0, downSeen = 0; for (let s = 1; s <= 20; s++) { const u = look(s, true, true), d = look(s, true, false); if (u.pic === d.pic) same++; if (look(s, false, true).hit) upSeen++; if (look(s, false, false).hit) downSeen++; }
+    parts.push([same === 20 && upSeen >= 15 && upSeen > downSeen, 'a raised mast: from below the layer it changes nothing in its picture (' + same + '/20 the same as with the mast down); from periscope depth it is seen in ' + upSeen + '/20 (mast down: ' + downSeen + '/20)']); }
+  // 3. the layer note: a classified submarine contact says which side of the layer the Archer was on when it was classified
+  { let noted = 0, right = 0; for (let s = 1; s <= 12; s++) { const { g, st, a } = world(600 + s), pl = PLAYERS.duel(600 + s);
+      for (let i = 0; i < 30 * 1800 && !st.over; i++) { g.step(STEP, pl(st)); g.events.length = 0; const c = st.contacts.find(q => q.id === a.id); if (c && c.cls === 'submarine' && c.layer) { noted++; if (c.layer === (a.depth > st.layer ? 'below' : 'above')) right++; break; } } }
+    parts.push([noted >= 8 && right === noted, 'once classified, the contact has a layer note in ' + noted + '/12 games, right (the side the Archer is on) in ' + right]); }
+  // 4. Deep: the search depth from the layer note; a launch with no depth setting is Shallow and plays exactly as one set Shallow
+  { const bd = SIM.bandDepth, okD = bd(60, false) === 90 && bd(60, true) === 30 && bd(30, true) === 20;
+    // the mission's own end is held off here (its tick is set aside for these games), so the Archer can be watched after it is out of action
+    const fire = (band, depth, ears) => { const tick = MISSIONS.duel.tick; MISSIONS.duel.tick = () => {}; const { g, st, p, a } = world(7); const e0 = A.ears; A.ears = ears === undefined ? A.ears : ears;
+      a.x = p.x + Math.cos(p.h) * 1600; a.z = p.z - Math.sin(p.h) * 1600; a.depth = a.wantD = depth === undefined ? st.layer + V.band.below : depth; a.mode = 'listen'; a.modeT = 1e9; A.sonar0 = A.sonar; A.sonar = 0;
+      let t = null, fired = 0, n20 = null; const log = [];
+      for (let i = 0; i < 30 * 150 && !st.over; i++) { if (!a.out) { a.speed = 0; a.modeT = 1e9; a.wantD = a.depth; } else if (n20 === null && a.outT >= 20) n20 = a.noise;
+        const inp = { throttle: 0, depthCmd: p.depth, fire: !fired && p.readyT > 0 && (fired = 1), launch: 0, enable: 0 }; if (band !== undefined) inp.band = band;
+        g.step(STEP, inp); for (const e of g.events) log.push(JSON.stringify(e)); g.events.length = 0; t = t || st.torps.find(q => q.side === 0); }
+      A.sonar = A.sonar0; delete A.sonar0; A.ears = e0; MISSIONS.duel.tick = tick; return { st, a, t, n20, log: log.join('\n'), text: JSON.stringify(st) }; };
+    const none = fire(undefined, 40, 0), shallow = fire(0, 40, 0), deep = fire(1, undefined, 0), deep6 = fire(1, 40, 0);
+    parts.push([okD && none.text === shallow.text && none.log === shallow.log && !shallow.t.band && deep.t.band === 1 && deep.t.sd === deep.st.layer + V.band.below,
+      'Deep searches at the layer plus ' + V.band.below + ' m below it, half the layer (at least ' + V.band.above + ' m) above it, and below it with no note (the torpedo fired at a contact with no note was set to ' + Math.round(deep.t.sd) + ' m, the layer at ' + Math.round(deep.st.layer) + ' m); a launch with no setting plays exactly as one set Shallow (same events and state)']);
+    // 5. the hull box: a Shallow torpedo passes over the Archer at 40 m; a Deep one at its depth puts it out of action; out of action it goes quiet within 20 s
+    const hitOver = shallow.a.hp === shallow.a.max && !shallow.a.out, outT = deep.a.outT;
+    parts.push([hitOver && deep.a.out && deep.n20 === 0 && deep.a.torps === A.torps && !deep.st.torps.some(t => t.owner === deep.a.id),
+      'a Shallow torpedo runs over the Archer 40 m down and does it no harm (hull points ' + shallow.a.hp + '/' + shallow.a.max + '); a Deep one at its depth puts it out of action, and 20 s later it makes no noise (' + deep.n20 + '; ' + Math.round(outT) + ' s out by the end) and has fired nothing']);
+    // 6. a ship the boat did not sink is not the captain's success: the Archer out of action by another weapon loses Silent Hunt; by the boat, wins it
+    const end = scored => { const { g, st, a } = world(9); a.out = true; a.hp = 0; if (scored) a.scored = true; g.step(STEP, {}); return st.result; };
+    parts.push([end(true) === 'lose' && end(false) === 'win', 'Silent Hunt is won only when the boat puts the Archer out of action (by another weapon: ' + end(true) + '; by the boat: ' + end(false) + ')']);
+  }
+  // 7. hidden awareness: the Archer hears the boat and attacks it, sees its mast, and hears a torpedo coming. The threat indicator (the surface picture), the
+  // statistics and the messages that announce a detection stay as they were, and no event of the Archer's own drops time compression. The only events that may
+  // drop it are those of the boat's own senses: a contact it hears, a torpedo homing on it once it can hear that torpedo, and the hits and the boat's own damage that follow.
+  { const MAY = ['contact', 'homing', 'hit', 'playerHit', 'breach', 'flood', 'fire', 'crushWarn', 'ground', 'collide', 'over'], told = ['alert', 'mastSeen', 'shipEvade'];
+    const run = (seed, setup, inp, secs) => { const { g, st, p, a } = world(seed); setup(st, p, a); const r = { threats: {}, told: 0, bad: [], max: 0, evade: false, attack: false };
+      for (let i = 0; i < 30 * secs && !st.over; i++) { g.step(STEP, inp(st, p, a)); for (const e of g.events) { if (told.includes(e.type)) r.told++; if (isThreat(e, st)) { r.threats[e.type] = (r.threats[e.type] || 0) + 1; if (!MAY.includes(e.type) || e.quiet) r.bad.push(e.type); } }
+        g.events.length = 0; r.max = Math.max(r.max, a.pic.base); if (a.mode === 'evade') r.evade = true; if (a.torps < A.torps) r.attack = true; }
+      r.quiet = st.enemy.level === 0 && st.stats.firstAlert < 0 && st.stats.maxLevel === 0 && st.stats.trackedT === 0; return r; };
+    const near = (d, deep) => (st, p, a) => { a.x = p.x + d; a.z = p.z; a.depth = a.wantD = deep ? st.layer + 30 : V.periscope; a.mode = 'listen'; a.modeT = 30; };
+    // the boat lies stopped (not silent) 1.8 km off: the Archer hears it, closes until its picture is firm and fires
+    const hear = run(21, near(1800, false), () => ({ throttle: 0, depthCmd: 30 }), 600);
+    const mast = run(22, near(2500, false), (st, p, a) => { if (a.pic.base < 2) { a.mode = 'listen'; a.modeT = 30; a.wantD = V.periscope; } return { throttle: 0, depthCmd: V.periscope, mast: true, silent: true }; }, 120);
+    const torp = run(23, (st, p, a) => { near(1600, true)(st, p, a); p.h = 0; A.sonar0 = A.sonar; A.sonar = 0; }, (st, p) => ({ throttle: 0, depthCmd: p.depth, fire: st.t > 5 && st.t < 6, band: 1 }), 90); A.sonar = A.sonar0; delete A.sonar0;
+    const all = [hear, mast, torp], fine = all.every(r => r.quiet && !r.told && !r.bad.length);
+    parts.push([fine && hear.max >= 2 && hear.attack && mast.max >= 2 && torp.evade, 'hidden awareness: the Archer heard the boat (picture level ' + hear.max + ') and attacked it (' + (hear.attack ? 'fired' : 'did not fire') + '), saw its mast (level ' + mast.max + ') and heard a torpedo coming (' + (torp.evade ? 'evaded' : 'did not evade') + '); through all of it the surface picture, the statistics and the detection messages stayed quiet ('
+      + all.map(r => (r.quiet ? 'quiet' : 'MOVED') + ', ' + r.told + ' told').join('; ') + '), and the only events that dropped time compression were the boat\'s own senses (' + all.map(r => JSON.stringify(r.threats)).join(' ') + (all.some(r => r.bad.length) ? '; NOT ALLOWED: ' + all.map(r => r.bad.join(',')).join(' ') : '') + ')']); }
+  // 8. balance (design 7.7): each row over 200 seeds, within 10 points of its target
+  { const pct = n => Math.round(100 * n / 200), row = (name, got, lo, hi) => parts.push([got >= lo && got <= hi, name + ': ' + got + '% (target ' + lo + ' to ' + hi + '%)']);
+    // detected first: both boats 5 km apart on the same side of the layer, heading roughly for each other
+    const first = (kn, akn) => { let pf = 0, af = 0; for (let seed = 1; seed <= 200; seed++) { const { g, st, p, a } = world(seed), v = kn * 0.5144, va = akn * 0.5144, dep = Math.max(20, st.layer - 25);
+        const b = (seed * 2.399) % TAU; a.x = Math.cos(b) * 5000; a.z = -Math.sin(b) * 5000; a.depth = a.wantD = p.depth = dep;
+        const r = [0.618, 0.414, 0.732, 0.236].map(k => (seed * k) % 1), mx = a.x / 2 + (r[0] - 0.5) * 3000, mz = a.z / 2 + (r[1] - 0.5) * 3000, nx = a.x / 2 + (r[2] - 0.5) * 3000, nz = a.z / 2 + (r[3] - 0.5) * 3000;
+        a.wp = [{ x: mx, z: mz }, { x: 2 * mx - a.x, z: 2 * mz - a.z }]; a.wi = 0; a.mode = 'creep'; a.h = Math.atan2(-(mz - a.z), mx - a.x); p.h = Math.atan2(-nz, nx); let who = null;
+        for (let i = 0; i < 30 * 1500 && !who; i++) { p.speed = v; a.speed = va; a.modeT = 1e9; if (a.pic.base < 2) a.mode = 'creep'; g.step(STEP, { throttle: 1, depthCmd: dep }); g.events.length = 0; if (a.pic.base >= 2) who = 'a'; else if (st.tracks.some(k => k.id === a.id)) who = 'p'; }
+        if (who === 'p') pf++; if (who === 'a') af++; } return { pf, af }; };
+    row('the boat hears the Archer first, both at 4 kn', pct(first(4, 4).pf), 55, 75);
+    row('the Archer hears a careless boat first, the boat at 12 kn and the Archer creeping at 4 kn', pct(first(12, 4).af), 80, 100);
+    let att = 0, won = 0; for (let seed = 1; seed <= 200; seed++) { const { g, st, a } = world(seed); while (!st.over) { g.step(STEP, { throttle: 0, depthCmd: 9 }); g.events.length = 0; } if (a.torps < A.torps) att++; if (st.result === 'win') won++; }
+    parts.push([won === 0 && pct(att) >= 50, 'an idle boat never wins (' + won + ' wins) and the Archer attacks it in ' + pct(att) + '% (at least 50%)']);
+    // one Deep torpedo on a Good solution inside 3 km at an Archer creeping on a straight course, unaware; and the same with the Archer alerted at the launch
+    const shot = alert => { let hits = 0; for (let seed = 1; seed <= 200; seed++) { const { g, st, p, a } = world(seed), son = A.sonar; A.sonar = 0;
+        const b = (seed * 2.399) % TAU; a.x = Math.cos(b) * 2200; a.z = -Math.sin(b) * 2200; a.h = b + PI / 2 + ((seed * 0.618) % 1 - 0.5); a.wp = [{ x: a.x + Math.cos(a.h) * 20000, z: a.z - Math.sin(a.h) * 20000 }]; a.wi = 0;
+        a.mode = 'creep'; a.modeT = 1e9; a.depth = a.wantD = seed % 2 ? st.layer + 30 : Math.max(25, st.layer - 20); p.depth = a.depth; p.h = b;
+        const mem = { legT: 0, zig: 1, pulse: false }; let fired = null, out = '';
+        for (let i = 0; i < 30 * 900 && !st.over && !out; i++) {
+          a.modeT = 1e9; if (a.mode !== 'evade' && a.mode !== 'listen') a.mode = 'creep';
+          const inp = blank(); presets(inp); inp.band = 1; inp.depthCmd = a.depth > st.layer ? st.layer + 30 : Math.max(25, st.layer - 20);
+          const c = st.contacts.find(q => q.id === a.id); if (c) inp.target = c.id;
+          if (!fired) { if (c) { if (st.t - mem.legT > 40) { mem.legT = st.t; mem.zig = -mem.zig; } steer(inp, p, c.brg + mem.zig * 0.8); } inp.throttle = 1; inp.silent = true;
+            const { k, q } = solutionOf(st, c); if (c && c.cls === 'submarine' && q && q.fit && q.r !== null && q.g >= 2 && q.r < 3000 && st.t - k.turnT > 20) { mem.pulse = !mem.pulse; inp.fire = mem.pulse; inp.silent = false; } }
+          else { nurse(st, inp, c); if (c) steer(inp, p, c.brg, 0.7); inp.throttle = 1; }
+          g.step(STEP, inp);
+          for (const e of g.events) { if (e.type === 'fire' && e.id !== undefined) { fired = e; A.sonar = son; if (alert) a.threat = e.id; } if (e.type === 'hit' && e.ship === a.id) out = 'hit'; if (e.type === 'torpEnd' && fired && e.id === fired.id) out = 'miss'; }
+          g.events.length = 0; }
+        A.sonar = son; if (out === 'hit') hits++; } return pct(hits); };
+    row('one Deep torpedo on a Good solution hits an unaware Archer', shot(false), 50, 70);
+    row('the same, with the Archer alerted at the launch and evading with a noisemaker', shot(true), 25, 45);
+  }
+  check('duel', parts);
 }
 // Unchanged. A change that only rearranges the rules must leave every game exactly as it was (the Duel plan, PR 1: tasks/todo.md). The game file as it stands on
 // the main branch is taken from git and its sim is run beside the one under test: the same mission, the same seed and the same player in each, step for step.

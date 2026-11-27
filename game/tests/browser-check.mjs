@@ -12,6 +12,7 @@
 //   node game/tests/browser-check.mjs stageh    the phone tabletop at 844x390 and 932x430 (?table=1): the plot as the main screen, the course drag, zoom, picking a contact, the row of buttons, the depth column, the menu, the damage panel, the small 3D window, the real loop, and the upright version (about 2 minutes)
 //   node game/tests/browser-check.mjs stagei    1280x800, then the phone tabletop: the Solution box and card, held values and Auto, the torpedo settings, Swim-out, Next torpedo, Retarget, Reject and the seeker view (about 3 minutes; it also runs with desktop and with stageh)
 //   node game/tests/browser-check.mjs stagej    1280x800, then the phone tabletop: Y and the Weapon row, the Attack and Tubes rows, a swap and its cancel, refused launches, a launch on the plot with its datum, the ship's defences, the 3D pictures (about 3 minutes)
+//   node game/tests/browser-check.mjs stagek    1280x800 and 390x844: the Duel. Silent Hunt on the title, the Archer drawn at its depth (its own model, never a frigate), the Search depth row and the Deep suggestion, the layer note, the hidden hunt, the Archer out of action, Help (about 2 minutes)
 //   node game/tests/browser-check.mjs stagef    1280x800 and the phone: every mission open from the start; sea life as sonar contacts, the Biologic class, the fire confirm, the map, shrimp beds, the outside camera, detail by distance, sounds (about 3 minutes)
 // Several can be given at once, separated by commas (desktop,phone,live,edge); with no name, everything except perf runs (about 25 minutes).
 // Headless Chrome needs the command sandbox off. The game rules themselves are tested in sim.test.mjs, without a browser.
@@ -327,7 +328,8 @@ async function desktop() {
   await ev(D_HELPERS);
   await ev('__G.start(7,"gate"); (function(){ const G=__G, st=G.sim.state, s=__h.ship("merchant"), f=__h.ship("frigate"); __h.near(s,800,30); G.stepFrames(30); G.input.fire=true; G.stepFrames(3); G.input.fire=false; G.said.length=0; const t=st.torps.find(q=>q.id===__h.strike(s)); t.side=1; t.owner=f.id; t.wire=false; let n=0; while(n<300&&st.torps.includes(t)&&!st.over){ G.stepFrames(1); n++; } })(); 1'); await frames(3);
   const fh = await ev('(function(){ const G=__G, st=G.sim.state; return {said:G.said.slice(),alert:document.getElementById("alert").textContent,over:st.over,neutral:st.stats.neutral,hits:st.stats.hits,torps:st.torps.length}; })()');
-  note(fh.said.includes('A torpedo has hit a neutral merchant ship.') && !fh.said.some(m => /hit a neutral/.test(m) && /your/i.test(m)) && !fh.said.some(m => /costs a star|ends the mission|Points are lost/.test(m)) && !fh.over && fh.neutral === 0 && fh.hits === 0,
+  // the Duel: it is worded by what the captain knows, and here the merchant has not been identified yet
+  note(fh.said.includes('A torpedo that is not yours has hit a ship you have not identified.') && !fh.said.some(m => /^Your (torpedo|missile) hit/.test(m)) && !fh.said.some(m => /costs a star|ends the mission|Points are lost/.test(m)) && !fh.over && fh.neutral === 0 && fh.hits === 0,
     "a torpedo that is not the boat's hits a merchant ship: the alert line says a torpedo hit it, not the captain's, with no penalty named and none counted", fh);
 }
 
@@ -469,7 +471,7 @@ async function missions() {
   await ev('try{ localStorage.removeItem("strait-shadow"); }catch(e){} 1'); await open('?test=1&seed=7&unlock=1'); await ev(HELPERS);
   // the title lists the missions; the first one is chosen for a new player
   const list = await ev('Array.from(document.querySelectorAll("#mpick button")).map(b=>b.textContent+(b.getAttribute("aria-pressed")==="true"?" (chosen)":""))');
-  note(list.length === 5 && /Shakedown.*\(chosen\)/.test(list[0]) && /Through the Gate/.test(list[1]) && /First Blood/.test(list[2]) && /Hunted/.test(list[3]) && /Strait Shadow/.test(list[4]), 'the title lists five missions and starts a new player on Shakedown', list);
+  note(list.length === 6 && /Shakedown.*\(chosen\)/.test(list[0]) && /Through the Gate/.test(list[1]) && /First Blood/.test(list[2]) && /Hunted/.test(list[3]) && /Strait Shadow/.test(list[4]) && /Silent Hunt/.test(list[5]), 'the title lists six missions and starts a new player on Shakedown', list);
   await ev('document.querySelector("#mpick button[data-m=gate]").click(); 1');
   note(await ev('__G.game.mission==="gate"&&__G.sim.state.mission==="gate"&&/exit zone/i.test(document.getElementById("m-brief").textContent)&&JSON.parse(localStorage.getItem("strait-shadow")).mission==="gate"'), 'choosing a mission shows its brief and is remembered', await ev('document.getElementById("m-brief").textContent'));
   await shot('50-title-mission-chosen-1280');
@@ -676,6 +678,11 @@ async function perf() {
     console.log('     ' + name + ' that picture, drawn as fast as it will go: ' + ms.x1 + ' ms a frame, ' + ms.x2 + ' ms at twice the pixel density');
     note(ms.x1 < 16 && ms.x2 < 33, name + ': drawn as fast as it will go, that picture takes under 16 ms (under 33 ms at twice the pixel density)', ms);
     await ev('__G.eyeSet(0); 1');
+    // the Duel: the Archer on screen in full detail beside the boat under water, the game running
+    await ev('__G.start(7,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); p.depth=40; __G.input.depthCmd=40; __G.input.throttle=1; a.depth=a.wantD=40; a.x=p.x+Math.cos(p.h+0.5)*95; a.z=p.z-Math.sin(p.h+0.5)*95; a.h=p.h; __G.stepFrames(3); __h.look(a.x,a.z,-0.05,150); })(); 1'); await frames(10);
+    const arc = await fpsLive(4), arcN = await ev('({archer:__G.lod.filter(q=>q.sub&&q.detail).length,over:__G.sim.state.over})');
+    console.log('     ' + name + ' the Archer close up under water, game running: ' + JSON.stringify(arc) + ' ' + JSON.stringify(arcN) + ' ' + JSON.stringify(await ev('__G.drawn')));
+    note(arc.fps >= 30 && arcN.archer === 1, name + ': the Archer close up in full detail draws at 30 frames a second or better', arc);
   }
   // the phone tabletop: the plot drawn every frame with the small 3D window on, at one and at two device pixels per CSS pixel (the game never draws finer than two)
   for (const [w, h, dsf] of [[844, 390, 1], [932, 430, 1], [844, 390, 2], [932, 430, 2]]) {
@@ -855,7 +862,7 @@ async function stagec() {
   await open('?test=1&seed=7'); await ev(HELPERS);
   // --- mission list and stars: every mission is open from the start ---
   let list = await ev('Array.from(document.querySelectorAll("#mpick button")).map(b=>b.textContent+(b.disabled?" [off]":"")+(b.getAttribute("aria-pressed")==="true"?" (chosen)":""))');
-  note(list.length === 5 && /Shakedown.*\(chosen\)/.test(list[0]) && list.every(t => /☆☆☆/.test(t) && !/off|locked/i.test(t)), 'a new player sees five missions, all open from the start, with no stars yet', list);
+  note(list.length === 6 && /Shakedown.*\(chosen\)/.test(list[0]) && list.every(t => /☆☆☆/.test(t) && !/off|locked/i.test(t)), 'a new player sees six missions, all open from the start, with no stars yet', list);
   note(await ev('!document.getElementById("b-patrol").disabled&&/Free Patrol/.test(document.getElementById("b-patrol").textContent)&&/^Stars: /.test(document.getElementById("m-goals").textContent)'), 'Free Patrol has its own button, open from the start, and the brief lists what earns the stars', await ev('document.getElementById("m-goals").textContent'));
   const au0 = await ev('__G.audio');
   note(au0.made === false && au0.unlocked === false && au0.pref === true, 'no sound object exists before the first tap or key press', au0);
@@ -1302,7 +1309,7 @@ async function stagef() {
   const roll = async (n, per) => { for (let i = 0; i < n; i++) { await ev('__G.stepFrames(' + (per || 12) + ')'); await frames(1); } };
   const life = id => ev('__h.life(' + id + ')');
   const missionList = () => ev('Array.from(document.querySelectorAll("#mpick button")).map(b=>({t:b.textContent,off:b.disabled||b.getAttribute("aria-disabled")==="true",cls:b.className}))');
-  const open5 = l => l.length === 5 && l.every(b => !b.off && !/lock/i.test(b.t + ' ' + b.cls));
+  const open6 = l => l.length === 6 && l.every(b => !b.off && !/lock/i.test(b.t + ' ' + b.cls));
   let v;
   await size(1280, 800, false);
   await open('?test=1&seed=7'); await ev('try{ localStorage.removeItem("strait-shadow"); }catch(e){} 1');
@@ -1313,9 +1320,9 @@ async function stagef() {
 
   // --- every mission is open from the start: nothing saved, and no unlock in the address ---
   const list = await missionList(), words = await ev('document.getElementById("title").innerText');
-  note(open5(list) && list.every(b => /☆☆☆/.test(b.t)) && !/\b(un)?lock/i.test(words) && await ev('!document.getElementById("b-patrol").disabled&&!/unlock/.test(location.search)'),
-    'with nothing won and no unlock in the address, all five missions and Free Patrol are open, and nothing on the title says locked', list.map(b => b.t));
-  note(open5(listU) && JSON.stringify(listU) === JSON.stringify(list), 'the old ?unlock=1 address still works and shows the same list', listU.map(b => b.t));
+  note(open6(list) && list.every(b => /☆☆☆/.test(b.t)) && !/\b(un)?lock/i.test(words) && await ev('!document.getElementById("b-patrol").disabled&&!/unlock/.test(location.search)'),
+    'with nothing won and no unlock in the address, all six missions and Free Patrol are open, and nothing on the title says locked', list.map(b => b.t));
+  note(open6(listU) && JSON.stringify(listU) === JSON.stringify(list), 'the old ?unlock=1 address still works and shows the same list', listU.map(b => b.t));
   // the last mission can be chosen and started straight away
   await ev('document.querySelectorAll("#mpick button")[4].click(); 1'); await frames(3);
   const pick = await ev('({mission:__G.game.mission,start:document.getElementById("b-start").textContent,chosen:document.querySelectorAll("#mpick button")[4].getAttribute("aria-pressed")})');
@@ -1326,7 +1333,7 @@ async function stagef() {
 
   // --- sea life is in every mission ---
   v = await ev(`__G.allMissions.map(m=>{ __G.start(7,m); const b=__G.sim.state.bios, n=k=>b.filter(q=>q.kind===k).length; return {m:m,whale:n('whale'),dolphin:n('dolphin'),fish:n('fish'),n:b.length}; })`);
-  note(v.length === 6 && v.every(q => q.m === 'patrol' ? q.n >= 2 : q.whale >= 1 && q.dolphin >= 1 && q.fish >= 1), 'every mission has sea life: whales, dolphins and fish in each named mission, at least two pods in Free Patrol', v.map(q => q.m + ' ' + q.whale + '/' + q.dolphin + '/' + q.fish).join(', '));
+  note(v.length === 7 && v.every(q => q.m === 'patrol' ? q.n >= 2 : q.whale >= 1 && q.dolphin >= 1 && q.fish >= 1), 'every mission has sea life: whales, dolphins and fish in each named mission, at least two pods in Free Patrol', v.map(q => q.m + ' ' + q.whale + '/' + q.dolphin + '/' + q.fish).join(', '));
 
   // --- a pod of dolphins is a sonar contact like any other: Unknown first, then Biologic ---
   await ev('__G.start(11,"shakedown"); 1');
@@ -1965,10 +1972,10 @@ async function stageiDesktop() {
 
   // --- Settings ---
   await key('KeyI', 'i', 73); let se = await ev('__i.set()');
-  note(se.shown && se.on.join() === 'Torpedo,Swim-out,Auto,Shallow,Straight' && /Seeker enables after/.test(se.note) && /Swim-out · Auto · Shallow · Straight/.test(await txt('wp-sum')), 'desktop: I opens the torpedo settings, with the defaults chosen and a line on what a launch now would do', se);
+  note(se.shown && se.on.join() === 'Torpedo,Swim-out,Auto,Shallow,Shallow,Straight' && /Seeker enables after/.test(se.note) && /Swim-out · Auto · Shallow · Straight/.test(await txt('wp-sum')), 'desktop: I opens the torpedo settings, with the defaults chosen and a line on what a launch now would do', se);
   await ev('__i.btn("tset","Deep").click(); __i.btn("tset","Snake").click(); __i.btn("tset","Long").click(); 1'); await frames(3); se = await ev('__i.set()');
   const over = await ev('__h.overlaps(' + JSON.stringify(I_PANELS) + ')');
-  note(se.input.join() === '0,2,1,1' && se.on.join() === 'Torpedo,Swim-out,Long,Deep,Snake' && /Long · Deep · Snake/.test(await txt('wp-sum')) && over.length === 0, 'desktop: choosing Long, Deep and Snake sets them, the summary follows, and the pop-up overlaps no panel', { se, over });
+  note(se.input.join() === '0,2,1,1' && se.on.join() === 'Torpedo,Swim-out,Long,Deep,Shallow,Snake' && /Long · Deep · Snake/.test(await txt('wp-sum')) && over.length === 0, 'desktop: choosing Long, Deep and Snake sets them, the summary follows, and the pop-up overlaps no panel', { se, over });
   await shot('i06-settings-desktop-1280');
   await ev('__i.btn("tset","Shallow").click(); __i.btn("tset","Straight").click(); __i.btn("tset","Auto").click(); 1'); await key('KeyI', 'i', 73);
   await key('Digit5', '5', 53); const a6 = await said(/Launch: Impulse/); await key('Digit5', '5', 53);
@@ -2064,9 +2071,9 @@ async function stageiTable() {
     // Settings: beside Fire; it takes the card's place
     await tap('t-set'); let se = await ev('__i.set()'); fc = await ev('__G.fc');
     const sb = await ev('Array.from(document.querySelectorAll("#tset button")).map(b=>{ const r=b.getBoundingClientRect(); return {id:b.textContent,w:Math.round(r.width),h:Math.round(r.height)}; }).filter(q=>q.w>0)');   // Stage J: the rows of the weapon not chosen are not shown
-    note(se.shown && fc.set && !fc.open && se.on.join() === 'Torpedo,Swim-out,Auto,Shallow,Straight' && sb.length === 12 && sb.every(q => q.w >= 44 && q.h >= 44) && /Aimed by the solution/.test(se.note), at + ': Set opens the torpedo settings in place of the card; every choice is at least 44 px, and the line says a launch now would be aimed by the solution', { se, sizes: sb.map(q => q.id + ' ' + q.w + 'x' + q.h).join(', ') });
+    note(se.shown && fc.set && !fc.open && se.on.join() === 'Torpedo,Swim-out,Auto,Shallow,Shallow,Straight' && sb.length === 14 && sb.every(q => q.w >= 44 && q.h >= 44) && /Aimed by the solution/.test(se.note), at + ': Set opens the torpedo settings in place of the card; every choice is at least 44 px, and the line says a launch now would be aimed by the solution', { se, sizes: sb.map(q => q.id + ' ' + q.w + 'x' + q.h).join(', ') });
     await tapBtn('tset', 'Deep'); await tapBtn('tset', 'Circle'); se = await ev('__i.set()');
-    note(se.input.join() === '0,0,1,2' && se.on.join() === 'Torpedo,Swim-out,Auto,Deep,Circle', at + ': a tap chooses Deep and Circle', se);
+    note(se.input.join() === '0,0,1,2' && se.on.join() === 'Torpedo,Swim-out,Auto,Deep,Shallow,Circle', at + ': a tap chooses Deep and Circle', se);
     await clear('with the torpedo settings open');
     if (first) await shot('i11-settings-table-844');
     await tapBtn('tset', 'Shallow'); await tapBtn('tset', 'Straight'); await tap('t-set');
@@ -2196,7 +2203,7 @@ async function stagejDesktop() {
   await clickBtn('Missile'); const r1 = await ev('__j.rows()'), n1 = await txt('ts-note');
   await clickBtn('Pop-up'); const r2 = await ev('__j.rows()'), a2 = await ev('__G.input.attack'), sum3 = await sum();
   const over = await ev('__h.overlaps(' + JSON.stringify(J_PANELS) + ')');
-  note(r0.length === 6 && /^weapon: Torpedo\* \/ Missile$/.test(r0[0]) && /^ts-tubes: Swap a tube to Missile \/ Swap a tube to Torpedo$/.test(r0[5]) && r1.length === 4 && /^weapon: Torpedo \/ Missile\*$/.test(r1[0]) && /^attack: Sea-skim\* \/ Pop-up$/.test(r1[1]) && /^route: Direct\* \/ Dog-leg left \/ Dog-leg right$/.test(r1[2]) && /^ts-tubes/.test(r1[3]) && /Select a ship first\./.test(n1) && /Ready: 6 T, 2 M\. Rack 4 T, 2 M\./.test(n1)
+  note(r0.length === 7 && /^weapon: Torpedo\* \/ Missile$/.test(r0[0]) && /^band: Shallow\* \/ Deep$/.test(r0[4]) && /^ts-tubes: Swap a tube to Missile \/ Swap a tube to Torpedo$/.test(r0[6]) && r1.length === 4 && /^weapon: Torpedo \/ Missile\*$/.test(r1[0]) && /^attack: Sea-skim\* \/ Pop-up$/.test(r1[1]) && /^route: Direct\* \/ Dog-leg left \/ Dog-leg right$/.test(r1[2]) && /^ts-tubes/.test(r1[3]) && /Select a ship first\./.test(n1) && /Ready: 6 T, 2 M\. Rack 4 T, 2 M\./.test(n1)
     && a2 === 1 && /^attack: Sea-skim \/ Pop-up\*$/.test(r2[1]) && /^Missile · Pop-up$/.test(sum3) && over.length === 0,
     'desktop: Settings has a Weapon row; under Torpedo it shows the four torpedo rows and Tubes, under Missile the Attack and Route rows and Tubes, with a line on whether a launch would be accepted; nothing overlaps', { torpedo: r0, missile: r1, note: n1, popup: r2[1], sum: sum3, over });
   await shot('j01-settings-missile-desktop-1280');
@@ -2351,7 +2358,7 @@ async function stagejTable() {
     await tap('t-set'); const r0 = await ev('__j.rows()'), z0 = await ev('__j.sizes()'), fb0 = await txt('t-fire');
     await clear('with the torpedo settings open (Stage J rows)');
     await tapBtn('Missile'); const r1 = await ev('__j.rows()'), z1 = await ev('__j.sizes()'), fb1 = await txt('t-fire'), n1 = await txt('ts-note'), w1 = await said(/Next shot/);
-    note(!!st0 && r0.length === 5 && /^weapon: Torpedo\* \/ Missile$/.test(r0[0]) && /^launch:/.test(r0[1]) && z0.length === 12 && z0.every(q => q.w >= 44 && q.h >= 44 && !q.cut) && fb0 === 'Fire'
+    note(!!st0 && r0.length === 6 && /^weapon: Torpedo\* \/ Missile$/.test(r0[0]) && /^launch:/.test(r0[1]) && z0.length === 14 && z0.every(q => q.w >= 44 && q.h >= 44 && !q.cut) && fb0 === 'Fire'
       && r1.length === 4 && /^weapon: Torpedo \/ Missile\*$/.test(r1[0]) && /^attack: Sea-skim\* \/ Pop-up$/.test(r1[1]) && /^route: Direct\* \/ Dog-leg left \/ Dog-leg right$/.test(r1[2]) && /^ts-tubes/.test(r1[3]) && z1.length === 9 && z1.every(q => q.w >= 44 && q.h >= 44 && !q.cut) && fb1 === 'Fire M' && /anti-ship missile/.test(w1) && /A launch now would be accepted/.test(n1),
       at + ': SET has the Weapon choice; Missile shows Attack, Route and the Tubes row, every choice is at least 44 px with its words whole, the Fire button reads "Fire M", and the line says a launch would be accepted', { staged: st0, torpedo: r0, missile: r1, fire: [fb0, fb1], note: n1, sizes: z0.concat(z1).map(q => q.id + ' ' + q.w + 'x' + q.h + (q.cut ? ' CUT' : '')).join(', ') });
     await clear('with the missile settings open');
@@ -2424,6 +2431,49 @@ async function stagejTable() {
 
 const alertTextOf = () => ev('document.getElementById("alert").textContent');
 
+// Stage K, the Duel (the plan, PR 2), at 1280x800 and then on the phone at 390x844
+async function stagek() {
+  for (const [w, h, phone, tag] of [[1280, 800, false, '1280'], [390, 844, true, '390']]) {
+    await size(w, h, phone); await open('?test=1&seed=7' + (phone ? '&table=0' : '')); await ev(HELPERS);
+    const list = await ev('Array.from(document.querySelectorAll("#mpick button")).map(b=>b.textContent)');
+    note(list.length === 6 && /Silent Hunt/.test(list[5]), tag + ': the title lists Silent Hunt after Strait Shadow', list);
+    // the hunt is hidden: the Archer hears the boat lying stopped 1.8 km off, closes and fires; the screen says nothing of it until the boat can hear the torpedo
+    await ev('__G.start(7,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); a.x=p.x+1800; a.z=p.z; a.depth=a.wantD=9; a.mode="listen"; a.modeT=30; __G.input.throttle=0; __G.input.depthCmd=30; })(); 1');
+    const hid = await ev('(function(){ const G=__G, st=G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); let early=[], n0=G.said.length, fired=-1;'
+      + ' for(let i=0;i<30*600&&!st.over;i++){ G.stepFrames(1); if(fired<0&&a.torps<4) fired=st.t; const t=st.torps.find(q=>q.owner===a.id); if(t&&Math.hypot(t.x-p.x,t.z-p.z)<2500) break; }'
+      + ' early=G.said.slice(n0); return {fired:fired,pic:a.pic.base,level:st.enemy.level,said:early}; })()');
+    note(hid.fired > 0 && hid.pic >= 2 && hid.level === 0 && !hid.said.some(m => /torpedo|detected|heard|alert|Archer/i.test(m)), tag + ': the Archer hears the boat and fires while the screen says nothing of it (no message about it, the threat level stays at 0)', hid);
+    await ev('__G.stepFrames(30*40); 1');
+    const loud = await ev('__G.said.slice(-8)');
+    note(loud.some(m => /torpedo/i.test(m)), tag + ': once the boat can hear the Archer\'s torpedo, the screen tells of it', loud);
+    // the Archer drawn at its depth beside the boat, with its own model; the camera under water looking at it
+    await ev('__G.start(7,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); p.depth=40; __G.input.depthCmd=40; __G.input.throttle=0; a.depth=a.wantD=40; a.x=p.x+Math.cos(p.h+0.5)*95; a.z=p.z-Math.sin(p.h+0.5)*95; a.h=p.h+0.3; a.mode="listen"; a.modeT=1e9; __G.stepFrames(3); __h.look(a.x,a.z,-0.05,150); })(); 1'); await frames(30); await sleep(300);
+    const view = await ev('({lod:__G.lod,depth:__G.sim.state.ships.find(s=>s.kind==="submarine").depth,water:__G.waterY})');
+    await shot('k01-archer-beside-the-boat-' + tag);
+    const v = view.lod.find(q => q.sub);
+    note(!!v && v.detail && Math.abs(v.y - (view.water - view.depth)) < 1 && view.lod.filter(q => q.sub).length === 1, tag + ': the Archer is drawn with its own model (not a frigate), in full detail close by, at its depth', view);
+    // the Search depth row, after Run depth, Shallow at first; fire control suggests Deep once the target is a classified submarine
+    await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); a.x=st.player.x+2500; a.z=st.player.z; for(let i=0;i<30*200;i++){ __G.stepFrames(1); const c=st.contacts.find(q=>q.id===a.id); if(c&&c.cls==="submarine"&&c.layer){ __G.game.sel=c.id; break; } } __G.stepFrames(2); __G.setSettings(true); })(); 1'); await frames(4);
+    const set = await ev('({rows:Array.from(document.querySelectorAll("#tset .srow")).filter(r=>r.getBoundingClientRect().height>0).map(r=>r.dataset.k||r.id),band:Array.from(document.querySelectorAll("#tset [data-k=band] button")).map(b=>{ const r=b.getBoundingClientRect(); return {t:b.textContent,on:b.getAttribute("aria-pressed"),w:Math.round(r.width),h:Math.round(r.height)}; }),note:document.getElementById("ts-note").textContent,sel:__G.game.sel,label:document.getElementById("' + (phone ? 'tb-con' : 'sg-cls') + '").textContent,contact:document.getElementById("contact").textContent})');
+    await shot('k02-search-depth-suggested-' + tag);
+    note(set.rows.indexOf('band') === set.rows.indexOf('runDepth') + 1 && set.band.length === 2 && set.band[0].t === 'Shallow' && set.band[0].on === 'true' && set.band.every(b => b.w >= 44 && b.h >= 30) && /submarine: set Search depth to Deep/.test(set.note) && /Submarine/.test(set.label) && /(above|below) the layer/.test(set.label),
+      tag + ': the Search depth row sits after Run depth, starts Shallow, fire control suggests Deep for the submarine, and its contact carries the layer note', set);
+    if (!phone) { await key('Digit9', '9', 57); const k9 = await ev('({band:__G.input.band,note:document.getElementById("ts-note").textContent})'); note(k9.band === 1 && !/set Search depth to Deep/.test(k9.note), tag + ': key 9 sets Search depth to Deep, and the suggestion goes', k9); }
+    else { await ev('Array.from(document.querySelectorAll("#tset [data-k=band] button"))[1].click(); 1'); note(await ev('__G.input.band') === 1, tag + ': tapping Deep sets Search depth to Deep'); }
+    // a Deep torpedo along the bow at the Archer held still 700 m ahead at the torpedo's search depth: air rising at the surface above it, and the mission won
+    await ev('__G.setSettings(false); __G.game.sel=0; __G.input.band=1; (function(){ const G=__G, st=G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); a.x=p.x+Math.cos(p.h)*700; a.z=p.z-Math.sin(p.h)*700; a.speed=0;'
+      + ' for(let i=0;i<30*10&&!st.torps.some(t=>t.side===0);i++){ G.input.fire=p.readyT>0; G.stepFrames(1); }'
+      + ' const t=st.torps.find(q=>q.side===0); for(let i=0;i<30*120&&!st.over;i++){ if(t) a.depth=a.wantD=t.sd; a.speed=0; a.threat=0; a.mode="listen"; a.modeT=1e9; G.stepFrames(1); } })(); 1');
+    const won = await ev('({over:__G.sim.state.over,result:__G.sim.state.result,reason:__G.sim.state.reason,said:__G.said.slice(-4)})');
+    await ev('(function(){ const a=__G.sim.state.ships.find(s=>s.kind==="submarine"); document.getElementById("result").hidden=true; __h.look(a.x,a.z,0.25,200); })(); 1'); await frames(20);
+    await shot('k03-archer-out-of-action-' + tag);
+    note(won.over && won.result === 'win' && won.said.some(m => /Air rising to the surface: the Archer is out of action/.test(m)), tag + ': a Deep torpedo puts the Archer out of action: air rises at the surface, the screen says so and the mission is won', won);
+    // Help: one line for the Archer and one for the depth setting
+    const help = await ev('document.getElementById("help").textContent');
+    note(/The Archer\./.test(help) && /Search depth\./.test(help) && /Submarine/.test(help), tag + ': Help has a line for the Archer and one for Search depth');
+  }
+}
+
 try {
   if (only === 'perf') await perf();
   if (want('stagec')) { await stagec(); await stagecMap(); }
@@ -2443,6 +2493,7 @@ try {
   if (want('phone')) await phone();   // with stagef wanted too, its phone part runs inside this one
   else if (want('stagef')) { await size(390, 844, true); await open('?test=1&seed=7&table=0'); await ev(HELPERS); await stagefPhone(); }
   else if (want('stagegphone')) { await size(390, 844, true); await open('?test=1&seed=7&table=0'); await ev(HELPERS); await stagegPhone(); }
+  if (want('stagek')) await stagek();
   if (want('edge')) await edge();
 } catch (e) { failed++; console.log('FAIL script stopped: ' + (e && e.stack || e)); }
 const errs = c.errors.filter(e => !/favicon|GPU stall due to ReadPixels|willReadFrequently/.test(e));
