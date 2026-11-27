@@ -1,0 +1,5 @@
+.herenow/
+.claude/
+game/shots/
+game/tmp/
+.DS_Store
