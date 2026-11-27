@@ -1928,6 +1928,8 @@ if (want('unchanged')) {
 if (want('sides')) {
   const V = SIM.V, parts = [], QUIET = ['alert', 'mastSeen', 'shipEvade'], count = (ev, type) => ev.filter(e => e.type === type).length;
   // a torpedo record as the sim makes one, already running and armed at its search depth, heading up the map
+  // what an event says of whose weapon it was: 'foe' when it carries foe:1, 'own' when it has no such key at all, 'odd' for anything else or no event
+  const whose = e => !e ? 'odd' : e.foe === 1 ? 'foe' : 'foe' in e ? 'odd' : 'own';
   const torp = (st, o) => { const t = Object.assign({ id: 880001 + st.torps.length, side: 1, phase: 'search', x: 0, z: 0, depth: V.torp.depth, alt: 0, h: PI / 2, speed: V.torp.speed, vy: 0, run: 1000, st: 0, life: 90, target: 0, pod: 0, spin: 1, wire: false, lock: 0, bait: 0, seen: [], tx: 0, tz: 0,
     launch: 1, enable: V.torp.enable, max: 1e9, deep: false, climbAt: 0, pat: 0, aimed: false, gyro: 0, aimRun: 1e9, base: 0, sw: 1, circ: 0, circled: false, patOn: false, again: 0, rej: [], from: 0, pref: false, goto: false, transT: 0 }, o); st.torps.push(t); return t; };
   // Pictures. The start of First Blood, with the frigate 900 m off and pointing at the boat, the mast up, and one of the boat's torpedoes and one of its noisemakers
@@ -1967,7 +1969,7 @@ if (want('sides')) {
     const m = w.also('merchant', 3000, 400, 0), hp = m.hp, score = st.score, t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
     w.run(60, {}, q => q.torps.includes(t) && !q.over);
     const hit = w.ev.find(e => e.type === 'hit' && e.id === t.id);
-    return { hit: !!hit && hit.ship === m.id && hit.neutral === true, lost: hp - m.hp, neutral: st.stats.neutral, hits: st.stats.hits, over: st.over, result: st.result, score: st.score - score }; };
+    return { hit: !!hit && hit.ship === m.id && hit.neutral === true, whose: whose(hit), lost: hp - m.hp, neutral: st.stats.neutral, hits: st.stats.hits, over: st.over, result: st.result, score: st.score - score }; };
   const theirs = strike(false), ours = strike(true);
   parts.push([theirs.hit && theirs.lost === 2 && theirs.neutral === 0 && theirs.hits === 0 && !theirs.over && theirs.score === 0,
     "a frigate's heavy torpedo that strikes a merchant damages it (" + theirs.lost + ' points) and is not counted against the captain: neutral ships hit ' + theirs.neutral + ', and on Hard the mission goes on']);
@@ -1978,7 +1980,7 @@ if (want('sides')) {
   const sink = own => { const w = mWorld(11, { plain: true, level: 0, mission: 'strait' }), st = w.st; if (!own) { w.tx = 3040; w.tz = 800; w.v = 0; } w.hold();
     const f = w.also('frigate', 3000, 400, 0), t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 }); f.hp = 2; f.cm = 0;
     w.run(60, {}, q => q.torps.includes(t) && !q.over);
-    return { hit: w.ev.some(e => e.type === 'hit' && e.id === t.id && e.ship === f.id), sunk: f.out && w.ev.some(e => e.type === 'shipOut' && e.ship === f.id), hits: st.stats.hits, out: st.stats.out, scored: f.scored }; };
+    return { hit: w.ev.some(e => e.type === 'hit' && e.id === t.id && e.ship === f.id), whose: whose(w.ev.find(e => e.type === 'hit' && e.id === t.id)), sunk: f.out && w.ev.some(e => e.type === 'shipOut' && e.ship === f.id), hits: st.stats.hits, out: st.stats.out, scored: f.scored }; };
   const theirF = sink(false), ourF = sink(true);
   parts.push([theirF.hit && theirF.sunk && theirF.hits === 0 && theirF.out === 0 && theirF.scored === true && ourF.hit && ourF.sunk && ourF.hits === 1 && ourF.out === 1 && ourF.scored === false,
     "a frigate's heavy torpedo that runs into the other frigate sinks it without a hit or a ship out of action going to the captain (hits " + theirF.hits + ', out ' + theirF.out + '), and marks it as nothing for a Free Patrol to pay for; the twin, one of the boat\'s own, is counted (hits ' + ourF.hits + ', out ' + ourF.out + ') and left to be scored']);
@@ -1986,16 +1988,30 @@ if (want('sides')) {
   const pod = own => { const w = mWorld(11, { plain: true, level: 0, difficulty: 'hard' }), st = w.st, b = st.bios.find(q => q.kind !== 'fish'); if (!b) return null; if (!own) { w.tx = 3040; w.tz = 900; w.v = 0; } w.hold();
     b.x = b.hx = b.tx = 3000; b.z = b.hz = b.tz = 700; b.depth = V.torp.depth; const t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
     w.run(60, {}, q => q.torps.includes(t) && !q.over);
-    return { hit: w.ev.some(e => e.type === 'bioHit' && e.id === t.id && e.pod === b.id), bio: st.stats.bio, over: st.over, result: st.result }; };
+    return { hit: w.ev.some(e => e.type === 'bioHit' && e.id === t.id && e.pod === b.id), whose: whose(w.ev.find(e => e.type === 'bioHit' && e.id === t.id)), fled: whose(w.ev.find(e => e.type === 'bioScatter' && e.pod === b.id)),
+      bio: st.stats.bio, over: st.over, result: st.result }; };
   const theirP = pod(false), ourP = pod(true);
   parts.push([!!theirP && !!ourP && theirP.hit && theirP.bio === 0 && !theirP.over && ourP.hit && ourP.bio === 1 && ourP.over && ourP.result === 'lose',
     "a frigate's heavy torpedo that goes off among sea life is not counted against the captain" + (theirP && ourP ? ' (sea life hit ' + theirP.bio + ', and on Hard the mission goes on); the twin, one of the boat\'s own, is counted (' + ourP.bio + ') and on Hard ends the mission' : ': NO POD in this world')]);
+  // What the screen is told. Each of those events from the frigate's torpedo carries foe:1, which is what keeps the screen from calling the weapon the captain's;
+  // the same events from the boat's own torpedo have no such key, as they never had.
+  parts.push([theirs.whose === 'foe' && theirF.whose === 'foe' && !!theirP && theirP.whose === 'foe' && theirP.fled === 'foe' && ours.whose === 'own' && ourF.whose === 'own' && !!ourP && ourP.whose === 'own' && ourP.fled === 'own',
+    "the events of a frigate's torpedo are marked as not the boat's (merchant hit: " + theirs.whose + ', frigate hit: ' + theirF.whose + ', sea life hit: ' + (theirP ? theirP.whose : 'none') + ', pod scattered: ' + (theirP ? theirP.fled : 'none') +
+    "), and the twins' events carry no such mark (" + [ours.whose, ourF.whose, ourP ? ourP.whose : 'none', ourP ? ourP.fled : 'none'].join(', ') + ')']);
   // The owner gone: a heavy torpedo still on its wire whose ship is no longer there. The wire drops, and as it was never the boat's nothing is reported or counted.
   const orphan = (() => { const w = mWorld(11, { plain: true, level: 0 }), st = w.st, t = torp(st, { owner: 424242, wire: true, x: 3000, z: 1000 }); let threw = '';
     try { w.run(2, {}); } catch (e) { threw = String((e && e.message) || e); }
     return { threw, wire: t.wire, cuts: st.stats.wireCuts, said: count(w.ev, 'wireCut'), runs: st.torps.includes(t) }; })();
   parts.push([!orphan.threw && orphan.wire === false && orphan.cuts === 0 && !orphan.said && orphan.runs,
     'a heavy torpedo whose owning ship is gone drops its wire and runs on, with no wire cut reported or counted' + (orphan.threw ? ' (it threw: ' + orphan.threw + ')' : '')]);
+  // The owner sunk: the same torpedo on its wire, 500 m from the frigate that owns it and well inside the wire's length. The frigate is out of action but still
+  // among the ships. The wire drops on the first step, again with nothing reported or counted; in the twin, with the frigate afloat, the wire holds.
+  const widow = sunk => { const w = mWorld(11, { plain: true, level: 0 }), st = w.st, f = w.tgt; w.tx = 3500; w.tz = 1000; w.v = 0; w.hold(); if (sunk) { f.out = true; f.outT = 0; }
+    const t = torp(st, { owner: f.id, wire: true, x: 3000, z: 1000 }); w.step({});
+    return { wire: t.wire, off: Math.hypot(t.x - f.x, t.z - f.z), cuts: st.stats.wireCuts, said: count(w.ev, 'wireCut'), runs: st.torps.includes(t), there: st.ships.includes(f) && f.out === sunk }; };
+  const lost = widow(true), held = widow(false);
+  parts.push([lost.wire === false && lost.there && lost.off < V.wire.len && lost.cuts === 0 && !lost.said && lost.runs && held.wire === true && held.there && held.runs,
+    'a heavy torpedo whose owning ship is out of action but still there (' + lost.off.toFixed(0) + ' m off, the wire ' + V.wire.len + ' m long) drops its wire on the next step and runs on, with no wire cut reported or counted; with that ship afloat the wire holds']);
   check('sides', parts);
 }
 if (mLines.length) { console.log('Missile balance over 200 seeds (the fixed scene of section 5; every layer counted together):'); for (const l of mLines) console.log(l); }

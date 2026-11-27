@@ -1776,7 +1776,7 @@ function createSim(opts){
       // a whale brushed in passing: a small jolt; the animal is unharmed and the pod scatters
       dm.bioCd=K.bio.cd; st.stats.collisions++;
       emit('collide',{with:'bio',sev:K.bio.sev,pod:b.id,kind:b.kind});
-      shock(K.bio.sev,'bio'); scare(b,p,40);
+      shock(K.bio.sev,'bio'); scare(b,p,40,true);
       break;
     }
   }
@@ -2442,6 +2442,9 @@ function createSim(opts){
   /* ---------- torpedoes ---------- */
   // a torpedo goes off against the boat's hull, so far forward (+) or aft (-) of its middle
   function boatHit(t,along){ const sec=secAt(along); st.stats.taken++; emit('playerHit',{id:t.id,x:t.x,z:t.z,depth:t.depth,sec:sec,sev:K.hit.sev}); torpHit(sec); }
+  // What a weapon that is not the boat's did is reported with foe:1 as its last key, so the screen does not tell the captain it was the boat's own.
+  // An event of the boat's own weapon has no such key: it reads as it always did.
+  function mark(e,mine){ if(!mine) e.foe=1; return e; }
   // A weapon strikes a ship and takes pts damage points off it: a torpedo 2 (the default), a missile 1 or 2 by where it hits. more: what else the hit event should say (a missile's hit point).
   // mine: the weapon is the boat's. The damage is the same whoever fired; the captain's hit and kill counts, the patrol's points, the penalty for a neutral ship,
   // what the hit shows the captain of the ship, and what it tells the frigates of the boat, all follow only from the boat's own weapons.
@@ -2451,7 +2454,7 @@ function createSim(opts){
     if(s.neutral){
       // a neutral ship: no credit, and a penalty. On Hard the mission ends there.
       if(live){ s.hp=Math.max(0,s.hp-pts); if(mine){ st.stats.neutral++; s.ident=1; s.known=true; } }
-      emit('hit',Object.assign({id:t.id,ship:s.id,kind:s.kind,neutral:true,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more));
+      emit('hit',mark(Object.assign({id:t.id,ship:s.id,kind:s.kind,neutral:true,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more),mine));
       if(!live) return;
       if(s.hp<=0){ s.out=true; s.outT=0; emit('shipOut',{ship:s.id,kind:s.kind,neutral:true,x:s.x,z:s.z}); }
       if(!mine) return;
@@ -2460,7 +2463,7 @@ function createSim(opts){
       return;
     }
     if(live){ s.hp=Math.max(0,s.hp-pts); if(mine) st.stats.hits++; }
-    emit('hit',Object.assign({id:t.id,ship:s.id,kind:s.kind,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more));
+    emit('hit',mark(Object.assign({id:t.id,ship:s.id,kind:s.kind,x:t.x,z:t.z,depth:t.depth,hp:s.hp,max:s.max},more),mine));
     // a ship put out of action by a weapon that is not the boat's is marked as already scored, so a Free Patrol pays the captain nothing for it
     if(live&&s.hp<=0){ s.out=true; s.outT=0; s.threat=0; if(!mine) s.scored=true; else if(s.kind==='frigate') st.stats.out++; emit('shipOut',{ship:s.id,kind:s.kind,x:s.x,z:s.z}); }
     else if(mine&&live&&hostile(s)&&!msl) detect(st.enemy,true,'area',s.x,s.z);      // a missile says nothing new about where the boat is: its launch already gave them a place to search
@@ -2468,16 +2471,17 @@ function createSim(opts){
     if(mine&&live&&s.kind==='cargo'&&!msl) for(const f of st.ships) if(hostile(f)&&!f.out){ detect(st.enemy,true,'cue',f.x,f.z,s.x-Math.cos(t.h)*1500,s.z+Math.sin(t.h)*1500); break; }
   }
   // a torpedo close by: the pod scatters, away from it, and falls silent for a while
-  function scare(b,t,secs){
-    if(b.scareT<=0) emit('bioScatter',{pod:b.id,kind:b.kind,x:b.x,z:b.z});
+  // mine: what came close is the boat or the boat's own torpedo
+  function scare(b,t,secs,mine){
+    if(b.scareT<=0) emit('bioScatter',mark({pod:b.id,kind:b.kind,x:b.x,z:b.z},mine));
     b.scareT=secs; b.fleeH=brg(t.x,t.z,b.x,b.z); if(b.kind!=='fish'){ b.call=false; b.callT=secs*0.6; }
   }
   // a torpedo that goes off among sea life: nothing gained, and the same penalty as for a neutral ship. On Hard the mission ends there.
   // mine: the torpedo is the boat's. Only then is it counted against the captain, and only then does it show the captain what the pod was.
   function hitBio(b,t,mine){
     b.hit=true; if(mine){ st.stats.bio++; b.known=true; b.ident=1; }
-    scare(b,t,90);
-    emit('bioHit',{id:t.id,pod:b.id,kind:b.kind,x:t.x,z:t.z,depth:t.depth});
+    scare(b,t,90,mine);
+    emit('bioHit',mark({id:t.id,pod:b.id,kind:b.kind,x:t.x,z:t.z,depth:t.depth},mine));
     if(!mine) return;
     if(M.endless){ const add=-Math.min(st.score,V.neutral.fine); st.score+=add; emit('score',{add:add,score:st.score,ship:b.id,neutral:true,bio:true}); }
     if(diff==='hard') end('lose','Mission failed: a torpedo went off among sea life.');
@@ -2576,7 +2580,8 @@ function createSim(opts){
     const T=V.torp, K=V.attack, own=ownerOf(t), q=quarryOf(t), mine=sideOf(t)==='player', heard=!!q&&Math.abs(q.depth-T.depth)<=K.hears;
     // a swim-out launch works up to its run speed slowly; an impulse launch is there in a moment
     t.speed=Math.min(T.speed,t.speed+(t.launch===0?(T.speed-K.swim.speed)/K.swim.ramp:K.impulse.accel)*dt); t.life-=dt; t.run+=t.speed*dt;
-    if(t.wire&&(!own||Math.hypot(t.x-own.x,t.z-own.z)>V.wire.len)) cutWire(t,'range');
+    // the wire parts at its full length, and at once when the ship holding it is gone or out of action: a sunk ship guides nothing
+    if(t.wire&&(!own||own.out||Math.hypot(t.x-own.x,t.z-own.z)>V.wire.len)) cutWire(t,'range');
     let tg=t.target===SUB?q:t.target?shipById(t.target):null, bait=null, pod=null;
     if(tg&&(tg.out||Math.hypot(tg.x-t.x,tg.z-t.z)>T.seek*1.5||(tg===q&&!heard))){ tg=null; t.target=0; }
     if(t.pod){ for(const b of st.bios) if(b.id===t.pod) pod=b; if(!pod||Math.hypot(pod.x-t.x,pod.z-t.z)>V.bio.seek*1.6){ pod=null; t.pod=0; } }
@@ -2657,7 +2662,7 @@ function createSim(opts){
     for(const b of st.bios){
       const d=Math.hypot(b.x-t.x,b.z-t.z); if(d>V.bio.scare) continue;
       if(armed&&b.kind!=='fish'&&d<V.bio.fuse&&Math.abs(b.depth-t.depth)<V.bio.fuse){ hitBio(b,t,mine); return false; }
-      if(b.scareT<20) scare(b,t,40);
+      if(b.scareT<20) scare(b,t,40,mine);
     }
     if(t.life<=0){ emit('torpEnd',{id:t.id,side:t.side,x:t.x,z:t.z,depth:t.depth}); return false; }
     return true;
@@ -6079,7 +6084,9 @@ function onEvent(e){
       if(e.weapon==='missile'){ const s=st.ships.find(q=>q.id===e.ship), hx=s?s.x+Math.cos(s.h)*e.off:e.x, hz=s?s.z-Math.sin(s.h)*e.off:e.z; flash(hx,hz,6,46,0.9); splash(hx-RS.ox,hz-RS.oz,240,15,4); for(let j=0;j<8;j++) smokeEmit(hx-RS.ox,waterY+rnd(4,9),hz-RS.oz); }
       else blast(x,waterY-3,z,1);
       boom(d); if(d<700) SHAKE=Math.max(SHAKE,1.2*(1-d/700)); eyeHit(e.ship);
-      if(e.neutral){ sfxTone(196,0.9,0.16); say('Your '+(e.weapon==='missile'?'missile':'torpedo')+' hit a neutral '+shipName(e.kind)+'. '+(ENDLESS(st.mission)?'Points are lost.':G.difficulty==='hard'?'That ends the mission.':'That costs a star.'),2,7); }
+      // a weapon that is not the boat's (foe): the hit is told plainly, with no credit and no penalty, for it costs the captain nothing
+      if(e.foe) say('A torpedo has hit '+(e.neutral?'a neutral ':'the ')+shipName(e.kind)+'.',1,5);
+      else if(e.neutral){ sfxTone(196,0.9,0.16); say('Your '+(e.weapon==='missile'?'missile':'torpedo')+' hit a neutral '+shipName(e.kind)+'. '+(ENDLESS(st.mission)?'Points are lost.':G.difficulty==='hard'?'That ends the mission.':'That costs a star.'),2,7); }
       else say(SIM.hitText(e),1,4); } break;
     case 'shipOut': if(e.kind!=='hulk'&&!e.neutral) say('The '+shipName(e.kind)+' is out of action.',1,6); break;
     case 'objective': say(st.objective,1,7); layout(); break;
@@ -6094,9 +6101,12 @@ function onEvent(e){
       else if(e.by!=='sight'&&e.kind!=='hulk') say('Contact classified: '+CLS[e.kind]+(NEUTRAL[e.kind]?', a neutral. Hold fire.':'.'),1,4.5);
       break;
     // a torpedo among sea life: nothing is shown but white water, and the pod making off
-    case 'bioHit': burst(x,RS.depth-e.depth,z); boom(d); sfxTone(196,0.9,0.16); if(d<700) SHAKE=Math.max(SHAKE,0.7*(1-d/700)); if(EYE.mode===1&&!st.torps.some(t=>t.id===EYE.id)){ eyeSet(3,e.pod); EYE.hold=6; }
-      say('Your torpedo went off among '+BIO_THE[e.kind]+', and the pod has scattered. '+(ENDLESS(st.mission)?'Points are lost.':G.difficulty==='hard'?'That ends the mission.':'That costs a star.'),2,7); break;
-    case 'bioScatter': { const b=st.bios.find(q=>q.id===e.pod); if(b&&b.known&&!b.hit) say(e.kind==='fish'?'The school of fish scatters as your torpedo runs through it.':'Your torpedo is close to '+BIO_THE[e.kind]+': the pod scatters. Steer it away.',1,4); } break;
+    case 'bioHit': burst(x,RS.depth-e.depth,z); boom(d); if(!e.foe) sfxTone(196,0.9,0.16); if(d<700) SHAKE=Math.max(SHAKE,0.7*(1-d/700)); if(EYE.mode===1&&!st.torps.some(t=>t.id===EYE.id)){ eyeSet(3,e.pod); EYE.hold=6; }
+      // one that was not the boat's costs the captain nothing, and is not called the captain's
+      if(e.foe) say('A torpedo went off among '+BIO_THE[e.kind]+', and the pod has scattered.',1,5);
+      else say('Your torpedo went off among '+BIO_THE[e.kind]+', and the pod has scattered. '+(ENDLESS(st.mission)?'Points are lost.':G.difficulty==='hard'?'That ends the mission.':'That costs a star.'),2,7);
+      break;
+    case 'bioScatter': { const b=st.bios.find(q=>q.id===e.pod); if(b&&b.known&&!b.hit) say(e.foe?(e.kind==='fish'?'The school of fish scatters as a torpedo runs through it.':'A torpedo is close to '+BIO_THE[e.kind]+': the pod scatters.'):e.kind==='fish'?'The school of fish scatters as your torpedo runs through it.':'Your torpedo is close to '+BIO_THE[e.kind]+': the pod scatters. Steer it away.',1,4); } break;
     case 'restock': say('One more torpedo has been readied.',0,4); break;
     case 'shipEvade': say('The frigate has heard your torpedo and is turning away.',0,4); break;
     case 'shipDecoy': say('The frigate has dropped a noisemaker. Watch the seeker view: reject a lock that reads stationary, no machinery.',1,5); break;
