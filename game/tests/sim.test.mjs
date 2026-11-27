@@ -2,6 +2,7 @@
 // The sim is pulled out of the page's <script id="sim"> block and run here with no browser.
 // -v prints every part of every check with its measured numbers; without it each check is one short line (a failed check is always printed in full).
 import { readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -1229,7 +1230,8 @@ function mWorld(seed, o) {
   // whenever the sim fits the target's track again it is handed the noiseless log (until the ship starts to react, when its last exact fit stands); 'plain' leaves the sim's own fitter alone
   let K = null, clean = null;
   const solver = o.plain ? undefined : (obs, q) => K && obs === K.obs ? (w.free ? K.sol : SIM.solveTrack(clean(q.t), Object.assign({}, q, { from: -1e9, holdC: null, holdS: null, wide: true }))) : SIM.solveTrack(obs, q);
-  const sim = createSim({ mission: o.mission || 'firstblood', seed, solver, difficulty: o.difficulty || 'standard' }), st = sim.state, p = st.player;
+  // build: another build of the sim to make the world in (the 'unchanged' check; 'plain' worlds only, as the fitter handed in above is this build's)
+  const sim = (o.build || SIM).createSim({ mission: o.mission || 'firstblood', seed, solver, difficulty: o.difficulty || 'standard' }), st = sim.state, p = st.player;
   const tgt = o.convoy ? st.ships[0] : st.ships.find(q => q.kind === (o.kind || 'frigate'));
   const w = { sim, st, p, tgt, ev: [], free: false, launched: false, pins: [], inp: { throttle: 1, depthCmd: o.depth || 30, weapon: 1, attack: o.attack || 0, route: o.route || 0, mast: !!o.mast, target: tgt.id } };
   if (!o.convoy) for (const q of st.ships) if (q !== tgt) { q.x = 60000 + q.id * 500; q.z = 60000; q.wp = [{ x: q.x + 1e5, z: q.z }]; q.wi = 0; }
@@ -1795,16 +1797,27 @@ if (want('missile')) {
 // the old Stage F record it was checked against has been removed.) Each game is played by the mission's scripted player with a second hand on the fire-control
 // panel: it picks contacts, sets courses and speeds by hand, changes the torpedo settings and sends orders down the wire. Every order of every step is written
 // down and played back into a fresh game.
+// The second hand, the fingerprint of a state and the missile games are also used by the 'unchanged' check below.
+const fiddle = seed => { let a = (seed * 7919) >>> 0; const r = () => { a = (Math.imul(a, 1664525) + 1013904223) >>> 0; return a / 4294967296; }; let a5 = (seed * 15485863) >>> 0; const r5 = () => { a5 = (Math.imul(a5, 1664525) + 1013904223) >>> 0; return a5 / 4294967296; };
+  const cmds = ['course+', 'course-', 'speed+', 'speed-', 'auto', 'restart', 'retarget', 'reject', 'next', 'weapon', 'swap', 'unswap']; let hold = 0, more = {};
+  return st => { if (--hold <= 0) { hold = 8 + Math.floor(r() * 50); const cs = st.contacts.filter(c => c.kind === 'ship' || c.kind === 'hulk' || c.kind === 'bio'), ts = st.torps.filter(t => t.side === 0);
+    more = { target: cs.length ? cs[Math.floor(r() * cs.length)].id : 0, cmd: st.seeker && st.seeker.lock && r() < 0.3 ? 'reject' : r() < 0.6 ? cmds[Math.floor(r() * cmds.length)] : '', arg: ts.length ? ts[Math.floor(r() * ts.length)].id : 0, launch: Math.floor(r() * 2), enable: Math.floor(r() * 3), runDepth: Math.floor(r() * 2), search: Math.floor(r() * 3) };
+    // Stage J: the weapon and the attack chosen for the next shot, which way a swap goes, and now and then a press of Fire with Missile chosen (most are refused, and the refusal is part of the game)
+    more.weapon = r() < 0.3 ? 1 : 0; more.attack = Math.floor(r() * 2); if (more.cmd === 'swap') more.arg = Math.floor(r() * 2); if (more.weapon === 1 && r() < 0.6) more.fire = true;
+    // Revision 5: the route chosen for the next missile, and now and then Update missile, from a generator of their own (so the older orders are the same numbers as before)
+    more.route = Math.floor(r5() * 3); if (!more.cmd && r5() < 0.15) more.cmd = 'mupdate'; }
+    return more; }; };
+const stateText = st => JSON.stringify(st, (k, v) => typeof v === 'number' && !isFinite(v) ? String(v) : v), hash = st => fnv(stateText(st));
+const mSetup = (seed, o, build) => { const w = mWorld(seed, { plain: true, range: o.range, level: 2, depth: o.scope ? 9 : 0, build }); w.log(o.dx || 0, 0); w.level(2); w.free = true; return w; };
+const mHand = (seed, id, o) => { let a = (seed * 104729) >>> 0; const r = () => { a = (Math.imul(a, 1664525) + 1013904223) >>> 0; return a / 4294967296; }; let hold = 0, more = {};
+  let a5 = (seed * 15485863) >>> 0; const r5 = () => { a5 = (Math.imul(a5, 1664525) + 1013904223) >>> 0; return a5 / 4294967296; };
+  return () => { if (--hold <= 0) { hold = 10 + Math.floor(r() * 80); const c = r();
+    more = { throttle: 1, depthCmd: r() < 0.1 ? 70 : 30, target: r() < 0.9 ? id : 0, weapon: r() < 0.85 ? 1 : 0, attack: Math.floor(r() * 2) * (o.low ? 0 : 1), fire: r() < 0.6, cmd: c < 0.12 ? 'swap' : c < 0.2 ? 'unswap' : '', arg: Math.floor(r() * 2), silent: r() < 0.05 };
+    more.route = Math.floor(r5() * 3); if (!more.cmd && r5() < (o.scope ? 0.5 : 0.2)) more.cmd = 'mupdate'; if (o.scope) { more.depthCmd = 9; more.mast = true; } }
+    return more; }; };
+const M_GAMES = [[1, { range: 5000 }], [2, { range: 5000 }], [3, { range: 6000 }], [4, { range: 6000 }], [5, { range: 7000 }], [6, { range: 7000 }], [7, { range: 5000 }], [8, { range: 6000 }], [9, { range: 7000, dx: 5000, low: true }], [10, { range: 7000, dx: -5000, low: true }],
+  [11, { range: 6000, scope: true }], [12, { range: 7000, scope: true }], [13, { range: 8000, dx: 2500, low: true, scope: true }]];
 if (want('replay')) {
-  const fiddle = seed => { let a = (seed * 7919) >>> 0; const r = () => { a = (Math.imul(a, 1664525) + 1013904223) >>> 0; return a / 4294967296; }; let a5 = (seed * 15485863) >>> 0; const r5 = () => { a5 = (Math.imul(a5, 1664525) + 1013904223) >>> 0; return a5 / 4294967296; };
-    const cmds = ['course+', 'course-', 'speed+', 'speed-', 'auto', 'restart', 'retarget', 'reject', 'next', 'weapon', 'swap', 'unswap']; let hold = 0, more = {};
-    return st => { if (--hold <= 0) { hold = 8 + Math.floor(r() * 50); const cs = st.contacts.filter(c => c.kind === 'ship' || c.kind === 'hulk' || c.kind === 'bio'), ts = st.torps.filter(t => t.side === 0);
-      more = { target: cs.length ? cs[Math.floor(r() * cs.length)].id : 0, cmd: st.seeker && st.seeker.lock && r() < 0.3 ? 'reject' : r() < 0.6 ? cmds[Math.floor(r() * cmds.length)] : '', arg: ts.length ? ts[Math.floor(r() * ts.length)].id : 0, launch: Math.floor(r() * 2), enable: Math.floor(r() * 3), runDepth: Math.floor(r() * 2), search: Math.floor(r() * 3) };
-      // Stage J: the weapon and the attack chosen for the next shot, which way a swap goes, and now and then a press of Fire with Missile chosen (most are refused, and the refusal is part of the game)
-      more.weapon = r() < 0.3 ? 1 : 0; more.attack = Math.floor(r() * 2); if (more.cmd === 'swap') more.arg = Math.floor(r() * 2); if (more.weapon === 1 && r() < 0.6) more.fire = true;
-      // Revision 5: the route chosen for the next missile, and now and then Update missile, from a generator of their own (so the older orders are the same numbers as before)
-      more.route = Math.floor(r5() * 3); if (!more.cmd && r5() < 0.15) more.cmd = 'mupdate'; }
-      return more; }; };
   // what the orders and the game held, counted from the events
   const seen = {}, mOut = { launched: 0, hit: 0, sam: 0, gun: 0, decoyed: 0, missed: 0 }, mGames = { launched: 0 };
   const note = (e, from) => { const J = ['missile', 'swap', 'fire', 'update'];
@@ -1816,7 +1829,6 @@ if (want('replay')) {
     if (e.type === 'refuse' && e.what === 'missile' && e.why === 'solution') from.poor = (from.poor || 0) + 1;
     if (e.type === 'mFire') { mOut.launched++; from.launched++; } else if (end) { mOut[end]++; from[end] = (from[end] || 0) + 1; } };
   const switches = tape => { let n = 0; for (let i = 1; i < tape.length; i++) if ((tape[i].weapon || 0) !== (tape[i - 1].weapon || 0)) n++; if (n) seen['weapon switched'] = (seen['weapon switched'] || 0) + n; };
-  const hash = st => fnv(JSON.stringify(st, (k, v) => typeof v === 'number' && !isFinite(v) ? String(v) : v));
   let games = 0, same = 0, steps = 0; const differ = [], inMissions = { launched: 0 };
   for (const id of Object.keys(MISSIONS)) for (const seed of [3, 17, 29]) {
     const tape = [], a = createSim({ mission: id, seed }), pl = PLAYERS[id](seed), fd = fiddle(seed);
@@ -1832,15 +1844,6 @@ if (want('replay')) {
   // attack. In two of the games the log is 5,000 m wrong and the hand keeps to Sea-skim, so those missiles pass the frigate unseen and find nothing. Each game is played,
   // its orders written down, and played back.
   // Revision 5: the hand also chooses the route and now and then orders Update missile (refused while the boat is deep); in the last three games the boat stays at periscope depth with its mast up, so updates go out.
-  const mSetup = (seed, o) => { const w = mWorld(seed, { plain: true, range: o.range, level: 2, depth: o.scope ? 9 : 0 }); w.log(o.dx || 0, 0); w.level(2); w.free = true; return w; };
-  const mHand = (seed, id, o) => { let a = (seed * 104729) >>> 0; const r = () => { a = (Math.imul(a, 1664525) + 1013904223) >>> 0; return a / 4294967296; }; let hold = 0, more = {};
-    let a5 = (seed * 15485863) >>> 0; const r5 = () => { a5 = (Math.imul(a5, 1664525) + 1013904223) >>> 0; return a5 / 4294967296; };
-    return () => { if (--hold <= 0) { hold = 10 + Math.floor(r() * 80); const c = r();
-      more = { throttle: 1, depthCmd: r() < 0.1 ? 70 : 30, target: r() < 0.9 ? id : 0, weapon: r() < 0.85 ? 1 : 0, attack: Math.floor(r() * 2) * (o.low ? 0 : 1), fire: r() < 0.6, cmd: c < 0.12 ? 'swap' : c < 0.2 ? 'unswap' : '', arg: Math.floor(r() * 2), silent: r() < 0.05 };
-      more.route = Math.floor(r5() * 3); if (!more.cmd && r5() < (o.scope ? 0.5 : 0.2)) more.cmd = 'mupdate'; if (o.scope) { more.depthCmd = 9; more.mast = true; } }
-      return more; }; };
-  const M_GAMES = [[1, { range: 5000 }], [2, { range: 5000 }], [3, { range: 6000 }], [4, { range: 6000 }], [5, { range: 7000 }], [6, { range: 7000 }], [7, { range: 5000 }], [8, { range: 6000 }], [9, { range: 7000, dx: 5000, low: true }], [10, { range: 7000, dx: -5000, low: true }],
-    [11, { range: 6000, scope: true }], [12, { range: 7000, scope: true }], [13, { range: 8000, dx: 2500, low: true, scope: true }]];
   let mSame = 0, mSteps = 0;
   for (const g of M_GAMES) {
     const a = mSetup(g[0], g[1]), hand = mHand(g[0], a.tgt.id, g[1]), tape = [];
@@ -1856,6 +1859,160 @@ if (want('replay')) {
     [mSame === M_GAMES.length, mSame + '/' + M_GAMES.length + ' missile games (' + mSteps + ' steps) end in exactly the same state when their orders are played back'],
     [mOut.launched >= 6 && mOut.hit >= 1 && down >= 1 && mOut.decoyed >= 1 && mOut.missed >= 1 && flying >= 0, 'missile launches accepted across the replay set: ' + mOut.launched + ' (' + inMissions.launched + ' in the 18 mission games, against ' + (inMissions.poor || 0) + ' launches refused there for the solution; they ended as hit ' + (inMissions.hit || 0) + ', shot down ' + ((inMissions.sam || 0) + (inMissions.gun || 0)) + ', decoyed ' + (inMissions.decoyed || 0) + ', missed ' + (inMissions.missed || 0) + '; ' + mGames.launched + ' in the missile games); in all they ended as: hit ' + mOut.hit
       + ', shot down ' + down + ' (' + mOut.sam + ' by a defence missile, ' + mOut.gun + ' by the gun), decoyed ' + mOut.decoyed + ', missed ' + mOut.missed + (flying ? ', still in flight when the game stopped ' + flying : '')]]);
+}
+// Unchanged. A change that only rearranges the rules must leave every game exactly as it was (the Duel plan, PR 1: tasks/todo.md). The game file as it stands on
+// the main branch is taken from git and its sim is run beside the one under test: the same mission, the same seed and the same player in each, step for step.
+// Every event is compared as it is emitted (events are not part of the saved state), and with it whether it would drop time compression. The whole state is
+// compared after every step, so a difference that lasts one step and is then put right is still found. At the end the result, the reason, the tick, the score,
+// the statistics and the whole state must be the same: the state is compared as text, which is what the replay check's fingerprint is taken from.
+// The games: in every mission the scripted player on six seeds, an idle player, twelve random players and the three replay games with the second hand on
+// the panel; then the 13 missile games. A game file that cannot be read from git fails the check: it is never skipped.
+if (want('unchanged')) {
+  const BASE = 'main:game/strait-shadow.html', diffs = [], held = {}, kinds = { scripted: [1].concat(SEEDS), idle: [1], random: [1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, 1011, 1012], replay: [3, 17, 29] };
+  let OLD = null, why = '', sameText = false, games = 0, steps = 0, evs = 0, threats = 0;
+  try {
+    const om = execFileSync('git', ['show', BASE], { cwd: here, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'] }).match(/<script id="sim">([\s\S]*?)<\/script>/);
+    if (om) { OLD = new Function(om[1] + '\nreturn StraitSim;')(); sameText = om[1] === simText; } else why = 'it has no <script id="sim"> block';
+  } catch (e) { why = String((e && e.message) || e).split('\n').filter(Boolean).slice(0, 2).join(' '); }
+  // Two states looked at side by side, value for value and key for key in the same order. It is quicker than writing both out as text, and it never calls two
+  // states alike whose texts differ, so a pair it calls different is then compared as text, which has the last word.
+  const alike = (x, y) => {
+    if (x === y) return true;
+    if (typeof x !== 'object' || typeof y !== 'object' || !x || !y) return typeof x === 'number' && typeof y === 'number' && !isFinite(x) && String(x) === String(y);
+    if (Array.isArray(x) !== Array.isArray(y)) return false;
+    if (Array.isArray(x)) { if (x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (!alike(x[i], y[i])) return false; return true; }
+    const kx = Object.keys(x), ky = Object.keys(y); if (kx.length !== ky.length) return false;
+    for (let i = 0; i < kx.length; i++) { const k = kx[i]; if (k !== ky[i] || !alike(x[k], y[k])) return false; }
+    return true;
+  };
+  // one game played in both: a is the sim from git and b the one under test, pa and pb their players. It stops at the first difference and says where.
+  const pair = (label, a, b, pa, pb, cap) => {
+    const A = a.state, B = b.state; games++;
+    for (let i = 0; i < cap && !A.over && !B.over && B.t < B.timeLimit + 1; i++) {
+      a.step(STEP, pa(A)); b.step(STEP, pb(B)); steps++;
+      for (let k = 0; k < Math.max(a.events.length, b.events.length); k++) {
+        const ea = a.events[k], eb = b.events[k], ta = JSON.stringify(ea), tb = JSON.stringify(eb), threat = !!eb && isThreat(eb, B);
+        if (ta !== tb || (!!ea && OLD.isThreat(ea, A)) !== threat) { diffs.push(label + ' at tick ' + B.tick + ': event ' + ta + ' became ' + tb + (ta === tb ? ' (it drops time compression in one and not the other)' : '')); return; }
+        const key = eb.type + (eb.type === 'homing' ? ' side ' + eb.side : ''); held[key] = (held[key] || 0) + 1; evs++; if (threat) threats++;
+      }
+      a.events.length = 0; b.events.length = 0;
+      if (!alike(A, B) && stateText(A) !== stateText(B)) { diffs.push(label + ' at tick ' + B.tick + ': the state ' + hash(A) + ' became ' + hash(B)); return; }
+    }
+    const bad = [], was = (name, x, y) => { if (x !== y) bad.push(name + ' ' + x + ' became ' + y); };
+    was('over', A.over, B.over); was('result', A.result, B.result); was('reason', A.reason, B.reason); was('end tick', A.tick, B.tick); was('score', A.score, B.score);
+    was('statistics', JSON.stringify(A.stats), JSON.stringify(B.stats)); if (stateText(A) !== stateText(B)) bad.push('final state ' + hash(A) + ' became ' + hash(B));
+    if (bad.length) diffs.push(label + ': ' + bad.join(', '));
+  };
+  const ids = OLD ? Object.keys(MISSIONS).filter(id => OLD.MISSIONS[id]) : [];
+  for (const id of ids) for (const kind of Object.keys(kinds)) for (const seed of kinds[kind]) {
+    const a = OLD.createSim({ mission: id, seed }), b = createSim({ mission: id, seed });
+    const mk = () => { const pl = (kind === 'idle' ? idle : kind === 'random' ? randomPlayer : PLAYERS[id])(seed), fd = kind === 'replay' ? fiddle(seed) : null; return fd ? st => Object.assign({}, pl(st), fd(st)) : pl; };
+    pair(id + ' ' + kind + ' seed ' + seed, a, b, mk(), mk(), kind === 'replay' ? 9000 : Infinity);
+  }
+  if (OLD) for (const g of M_GAMES) {
+    const a = mSetup(g[0], g[1], OLD), b = mSetup(g[0], g[1]);
+    pair('missile game ' + g[0], a.sim, b.sim, mHand(g[0], a.tgt.id, g[1]), mHand(g[0], b.tgt.id, g[1]), 4500);
+  }
+  // the games must have gone through the rules the change touches: what the other side knows and says, torpedoes of both kinds, missiles and the ships' defences
+  const need = ['alert', 'mastSeen', 'shipEvade', 'sighted', 'datum', 'mSeen', 'homing side 0', 'homing side 1', 'fooled', 'lostLock', 'wireCut', 'shipDecoy', 'shipFire', 'drop', 'hit', 'playerHit', 'collide', 'heloLaunch', 'buoy', 'wave', 'score'], missing = need.filter(k => !held[k]);
+  const per = Object.keys(kinds).map(k => kinds[k].length + ' ' + k).join(', '), n = ids.length * Object.keys(kinds).reduce((q, k) => q + kinds[k].length, 0) + M_GAMES.length;
+  check('unchanged', [[!!OLD, OLD ? 'the game file was read from git (' + BASE + '; its sim is ' + (sameText ? 'the same text as the one under test' : 'not the same text as the one under test') + ')' : 'the game file could not be read from git (git show ' + BASE + '), so nothing was compared: ' + why]
+  ].concat(!OLD ? [] : [[!diffs.length && games === n && ids.length === Object.keys(OLD.MISSIONS).length, games + ' games (' + ids.length + ' missions: ' + per + ' each; ' + M_GAMES.length + ' missile games), ' + steps + ' steps and ' + evs + ' events (' + threats + ' of them drop time compression)'
+      + (diffs.length ? ' DIFFER in ' + diffs.length + ': ' + diffs.slice(0, 6).join(' | ') : ': result, reason, end tick, score, statistics, every event and the state after every step are the same in both')],
+    [!missing.length, 'the events compared held ' + need.filter(k => held[k]).map(k => held[k] + ' ' + k).join(', ') + (missing.length ? '; MISSING: ' + missing.join(', ') : '')]]));
+}
+// Sides. The rules that ask whose a picture or a weapon is (the Duel plan, PR 1) have no user in any mission yet: every picture is the shown one and every heavy
+// torpedo is the boat's. So the other branches are driven here by hand, each beside a twin that takes the branch the game takes today, to show that the twin
+// does what the first must not. A picture that is not the shown one is written through the picture rules the sim hands out (sim.pictures); a heavy torpedo
+// that a frigate owns is a record put into the state with that frigate's id as its owner.
+if (want('sides')) {
+  const V = SIM.V, parts = [], QUIET = ['alert', 'mastSeen', 'shipEvade'], count = (ev, type) => ev.filter(e => e.type === type).length;
+  // a torpedo record as the sim makes one, already running and armed at its search depth, heading up the map
+  // what an event says of whose weapon it was: 'foe' when it carries foe:1, 'own' when it has no such key at all, 'odd' for anything else or no event
+  const whose = e => !e ? 'odd' : e.foe === 1 ? 'foe' : 'foe' in e ? 'odd' : 'own';
+  const torp = (st, o) => { const t = Object.assign({ id: 880001 + st.torps.length, side: 1, phase: 'search', x: 0, z: 0, depth: V.torp.depth, alt: 0, h: PI / 2, speed: V.torp.speed, vy: 0, run: 1000, st: 0, life: 90, target: 0, pod: 0, spin: 1, wire: false, lock: 0, bait: 0, seen: [], tx: 0, tz: 0,
+    launch: 1, enable: V.torp.enable, max: 1e9, deep: false, climbAt: 0, pat: 0, aimed: false, gyro: 0, aimRun: 1e9, base: 0, sw: 1, circ: 0, circled: false, patOn: false, again: 0, rej: [], from: 0, pref: false, goto: false, transT: 0 }, o); st.torps.push(t); return t; };
+  // Pictures. The start of First Blood, with the frigate 900 m off and pointing at the boat, the mast up, and one of the boat's torpedoes and one of its noisemakers
+  // close to the ship. Every picture rule is run on it by hand and nothing is stepped: 300 seconds of the ship's own sensors, a fix, an active echo, a noisemaker's
+  // pull, a dipping sonar's ping, then three seconds of going stale. Once on a picture of its own that is not the shown one, once in a twin world on the shown one.
+  const pictures = shown => { const sim = createSim({ mission: 'firstblood', seed: 7 }), st = sim.state, p = st.player, s = st.ships.find(q => q.kind === 'frigate'), P = sim.pictures;
+    const tr = shown ? st.enemy : JSON.parse(JSON.stringify(st.enemy)), stats0 = JSON.stringify(st.stats), enemy0 = JSON.stringify(st.enemy);
+    s.x = p.x + 900; s.z = p.z; s.h = bearing(s.x, s.z, p.x, p.z); p.mast = true; p.expo = 1; p.depth = V.periscope;
+    torp(st, { side: 0, x: s.x + 200, z: s.z }); const dc = { id: 880100, side: 0, x: s.x + 100, z: s.z, depth: 20, life: 60 }; st.decoys.push(dc);
+    for (let i = 0; i < 300; i++) { s.threat = 0; P.shipSense(s, tr, shown, 900, 1); }
+    P.detect(tr, shown, 'fix', s.x, s.z); P.activeFix(tr, shown, s.x, s.z); P.lure(tr, shown, dc); P.dipPing({ id: 880200, x: p.x + 300, z: p.z, fix: false }, tr, shown);
+    for (let i = 0; i < 90; i++) P.decay(tr, shown, STEP);
+    return { tr: JSON.stringify(tr), ev: sim.events.slice(), stats: st.stats, statsSame: JSON.stringify(st.stats) === stats0, enemySame: JSON.stringify(st.enemy) === enemy0, level: tr.level }; };
+  const hid = pictures(false), seen = pictures(true), said = ev => QUIET.map(k => count(ev, k) + ' ' + k).join(', ');
+  parts.push([hid.level >= 3 && hid.tr === seen.tr, 'a picture that is not the shown one is written exactly as the shown one is in a twin world (it reaches level ' + hid.level + ', and every number in it is the same)']);
+  parts.push([hid.statsSame && hid.enemySame && hid.stats.firstAlert < 0 && hid.stats.maxLevel === 0 && hid.stats.trackedT === 0, 'it leaves the statistics and the shown picture as they were (first alert ' + hid.stats.firstAlert + ', highest level ' + hid.stats.maxLevel + ', time tracked ' + hid.stats.trackedT + ')']);
+  parts.push([QUIET.every(k => !count(hid.ev, k)) && JSON.stringify(hid.ev) === JSON.stringify(seen.ev.filter(e => !QUIET.includes(e.type))), 'it reports nothing (' + said(hid.ev) + '), and every other event is the same as in the twin (' + hid.ev.length + ')']);
+  parts.push([QUIET.every(k => count(seen.ev, k) > 0) && !seen.statsSame && seen.stats.firstAlert >= 0 && seen.stats.maxLevel >= 3 && seen.stats.trackedT > 0,
+    'the twin, on the shown picture, does report and count (' + said(seen.ev) + '; first alert ' + seen.stats.firstAlert + ', highest level ' + seen.stats.maxLevel + ', time tracked ' + seen.stats.trackedT.toFixed(1) + ' s)']);
+  // A frigate's heavy torpedo and the boat, in Strait Shadow's waters. The torpedo starts 1,000 m astern of the boat and runs up its track at its search depth.
+  // The frigate that owns it lies across the torpedo's track 300 m ahead, so the torpedo runs through its hull; the other frigate lies 400 m ahead and 40 m
+  // clear of the track. Both are nearer than the boat and inside the seeker's cone.
+  // The other side is kept unaware, so nothing else is fired.
+  const hunt = depth => { const w = mWorld(11, { plain: true, level: 0, depth, mission: 'strait' }), st = w.st; w.tx = 40; w.tz = 700; w.v = 0; w.hold(); w.also('frigate', -40, 600, PI / 2);
+    const t = torp(st, { owner: w.tgt.id, x: 0, z: 1000 }), o = { sub: false, own: false };
+    w.run(95, {}, q => { if (t.target === -1) o.sub = true; else if (t.target) o.own = true; return q.torps.includes(t); });
+    const mine = e => e.id === t.id; o.homing = w.ev.filter(e => e.type === 'homing' && mine(e)); o.hit = w.ev.filter(e => e.type === 'playerHit' && mine(e)); o.end = w.ev.filter(e => e.type === 'torpEnd' && mine(e)).length;
+    o.struck = w.ev.filter(e => e.type === 'hit' && mine(e)).length; o.stats = st.stats; o.t = st.t; return o; };
+  const shallow = hunt(V.periscope), under = hunt(14), deep = hunt(30);
+  parts.push([shallow.homing.length >= 1 && shallow.homing[0].side === 1 && shallow.sub && !shallow.own && !shallow.struck && shallow.hit.length === 1 && shallow.stats.taken === 1 && shallow.stats.hits === 0 && shallow.stats.neutral === 0,
+    "a frigate's heavy torpedo runs through the hull of the frigate that owns it unharmed, passes the other frigate, takes the boat at periscope depth for its target and strikes it (after " + shallow.t.toFixed(0) + ' s; hits taken ' + shallow.stats.taken + ')']);
+  parts.push([under.homing.length >= 1 && under.sub && !under.hit.length && under.end === 1 && under.stats.taken === 0, 'with the boat at 14 m it hears the boat and follows it but passes over the hull and runs out (locked ' + under.homing.length + ' time(s), hits taken ' + under.stats.taken + ')']);
+  parts.push([!deep.homing.length && !deep.sub && !deep.hit.length && deep.end === 1 && deep.stats.taken === 0, 'with the boat at 30 m, out of its seeker\'s hearing, it never locks on and runs out']);
+  // A heavy torpedo and a neutral ship, on Hard: a merchant lies still across the torpedo's track 600 m ahead, with the boat 3,000 m away and deep. The frigate's
+  // torpedo has its frigate across its track on the way; the twin is one of the boat's own, with the frigate far off.
+  const strike = own => { const w = mWorld(11, { plain: true, level: 0, difficulty: 'hard' }), st = w.st; if (!own) { w.tx = 3040; w.tz = 800; w.v = 0; } w.hold();
+    const m = w.also('merchant', 3000, 400, 0), hp = m.hp, score = st.score, t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
+    w.run(60, {}, q => q.torps.includes(t) && !q.over);
+    const hit = w.ev.find(e => e.type === 'hit' && e.id === t.id);
+    return { hit: !!hit && hit.ship === m.id && hit.neutral === true, whose: whose(hit), lost: hp - m.hp, neutral: st.stats.neutral, hits: st.stats.hits, over: st.over, result: st.result, score: st.score - score }; };
+  const theirs = strike(false), ours = strike(true);
+  parts.push([theirs.hit && theirs.lost === 2 && theirs.neutral === 0 && theirs.hits === 0 && !theirs.over && theirs.score === 0,
+    "a frigate's heavy torpedo that strikes a merchant damages it (" + theirs.lost + ' points) and is not counted against the captain: neutral ships hit ' + theirs.neutral + ', and on Hard the mission goes on']);
+  parts.push([ours.hit && ours.lost === 2 && ours.neutral === 1 && ours.over && ours.result === 'lose', 'the twin, one of the boat\'s own, is counted (neutral ships hit ' + ours.neutral + ') and on Hard ends the mission']);
+  // A heavy torpedo and a frigate with two damage points left and no noisemakers, lying across the torpedo's track 600 m ahead in Strait Shadow's waters.
+  // A torpedo goes off against any hull it runs into but its owner's, so the other frigate's torpedo sinks it too; only the boat's own is counted as a hit
+  // and a ship put out of action.
+  const sink = own => { const w = mWorld(11, { plain: true, level: 0, mission: 'strait' }), st = w.st; if (!own) { w.tx = 3040; w.tz = 800; w.v = 0; } w.hold();
+    const f = w.also('frigate', 3000, 400, 0), t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 }); f.hp = 2; f.cm = 0;
+    w.run(60, {}, q => q.torps.includes(t) && !q.over);
+    return { hit: w.ev.some(e => e.type === 'hit' && e.id === t.id && e.ship === f.id), whose: whose(w.ev.find(e => e.type === 'hit' && e.id === t.id)), sunk: f.out && w.ev.some(e => e.type === 'shipOut' && e.ship === f.id), hits: st.stats.hits, out: st.stats.out, scored: f.scored }; };
+  const theirF = sink(false), ourF = sink(true);
+  parts.push([theirF.hit && theirF.sunk && theirF.hits === 0 && theirF.out === 0 && theirF.scored === true && ourF.hit && ourF.sunk && ourF.hits === 1 && ourF.out === 1 && ourF.scored === false,
+    "a frigate's heavy torpedo that runs into the other frigate sinks it without a hit or a ship out of action going to the captain (hits " + theirF.hits + ', out ' + theirF.out + '), and marks it as nothing for a Free Patrol to pay for; the twin, one of the boat\'s own, is counted (hits ' + ourF.hits + ', out ' + ourF.out + ') and left to be scored']);
+  // A heavy torpedo and sea life, on Hard: a pod of whales or dolphins 300 m ahead of the torpedo at its depth, with no ship in front of it.
+  const pod = own => { const w = mWorld(11, { plain: true, level: 0, difficulty: 'hard' }), st = w.st, b = st.bios.find(q => q.kind !== 'fish'); if (!b) return null; if (!own) { w.tx = 3040; w.tz = 900; w.v = 0; } w.hold();
+    b.x = b.hx = b.tx = 3000; b.z = b.hz = b.tz = 700; b.depth = V.torp.depth; const t = torp(st, own ? { side: 0, x: 3000, z: 1000 } : { owner: w.tgt.id, x: 3000, z: 1000 });
+    w.run(60, {}, q => q.torps.includes(t) && !q.over);
+    return { hit: w.ev.some(e => e.type === 'bioHit' && e.id === t.id && e.pod === b.id), whose: whose(w.ev.find(e => e.type === 'bioHit' && e.id === t.id)), fled: whose(w.ev.find(e => e.type === 'bioScatter' && e.pod === b.id)),
+      bio: st.stats.bio, over: st.over, result: st.result }; };
+  const theirP = pod(false), ourP = pod(true);
+  parts.push([!!theirP && !!ourP && theirP.hit && theirP.bio === 0 && !theirP.over && ourP.hit && ourP.bio === 1 && ourP.over && ourP.result === 'lose',
+    "a frigate's heavy torpedo that goes off among sea life is not counted against the captain" + (theirP && ourP ? ' (sea life hit ' + theirP.bio + ', and on Hard the mission goes on); the twin, one of the boat\'s own, is counted (' + ourP.bio + ') and on Hard ends the mission' : ': NO POD in this world')]);
+  // What the screen is told. Each of those events from the frigate's torpedo carries foe:1, which is what keeps the screen from calling the weapon the captain's;
+  // the same events from the boat's own torpedo have no such key, as they never had.
+  parts.push([theirs.whose === 'foe' && theirF.whose === 'foe' && !!theirP && theirP.whose === 'foe' && theirP.fled === 'foe' && ours.whose === 'own' && ourF.whose === 'own' && !!ourP && ourP.whose === 'own' && ourP.fled === 'own',
+    "the events of a frigate's torpedo are marked as not the boat's (merchant hit: " + theirs.whose + ', frigate hit: ' + theirF.whose + ', sea life hit: ' + (theirP ? theirP.whose : 'none') + ', pod scattered: ' + (theirP ? theirP.fled : 'none') +
+    "), and the twins' events carry no such mark (" + [ours.whose, ourF.whose, ourP ? ourP.whose : 'none', ourP ? ourP.fled : 'none'].join(', ') + ')']);
+  // The owner gone: a heavy torpedo still on its wire whose ship is no longer there. The wire drops, and as it was never the boat's nothing is reported or counted.
+  const orphan = (() => { const w = mWorld(11, { plain: true, level: 0 }), st = w.st, t = torp(st, { owner: 424242, wire: true, x: 3000, z: 1000 }); let threw = '';
+    try { w.run(2, {}); } catch (e) { threw = String((e && e.message) || e); }
+    return { threw, wire: t.wire, cuts: st.stats.wireCuts, said: count(w.ev, 'wireCut'), runs: st.torps.includes(t) }; })();
+  parts.push([!orphan.threw && orphan.wire === false && orphan.cuts === 0 && !orphan.said && orphan.runs,
+    'a heavy torpedo whose owning ship is gone drops its wire and runs on, with no wire cut reported or counted' + (orphan.threw ? ' (it threw: ' + orphan.threw + ')' : '')]);
+  // The owner sunk: the same torpedo on its wire, 500 m from the frigate that owns it and well inside the wire's length. The frigate is out of action but still
+  // among the ships. The wire drops on the first step, again with nothing reported or counted; in the twin, with the frigate afloat, the wire holds.
+  const widow = sunk => { const w = mWorld(11, { plain: true, level: 0 }), st = w.st, f = w.tgt; w.tx = 3500; w.tz = 1000; w.v = 0; w.hold(); if (sunk) { f.out = true; f.outT = 0; }
+    const t = torp(st, { owner: f.id, wire: true, x: 3000, z: 1000 }); w.step({});
+    return { wire: t.wire, off: Math.hypot(t.x - f.x, t.z - f.z), cuts: st.stats.wireCuts, said: count(w.ev, 'wireCut'), runs: st.torps.includes(t), there: st.ships.includes(f) && f.out === sunk }; };
+  const lost = widow(true), held = widow(false);
+  parts.push([lost.wire === false && lost.there && lost.off < V.wire.len && lost.cuts === 0 && !lost.said && lost.runs && held.wire === true && held.there && held.runs,
+    'a heavy torpedo whose owning ship is out of action but still there (' + lost.off.toFixed(0) + ' m off, the wire ' + V.wire.len + ' m long) drops its wire on the next step and runs on, with no wire cut reported or counted; with that ship afloat the wire holds']);
+  check('sides', parts);
 }
 if (mLines.length) { console.log('Missile balance over 200 seeds (the fixed scene of section 5; every layer counted together):'); for (const l of mLines) console.log(l); }
 if (table.length && mRandom.mFire !== undefined) { const q = k => mRandom[k] || 0;

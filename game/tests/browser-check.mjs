@@ -321,6 +321,14 @@ async function desktop() {
   await ev('__G.start(16,"strait"); __G.stepFrames(30); 1'); await frames(6);
   const late = await ev('(function(){ const s=__G.shade; return {kinds:Object.keys(s.kinds),std:s.std,lit:s.lit,miss:s.miss}; })()');
   note(!had.includes('cargo') && late.kinds.includes('cargo') && late.std > plainShade.std && late.lit === 0 && late.miss === 0, 'a kind of ship first built after the plain look took over is plain too', { had, late });
+
+  // a hit by a torpedo that is not the boat's: the alert line tells it plainly, and names no penalty. No ship fires a heavy torpedo yet, so one of the boat's own
+  // is fired, made over into a frigate's (its side, and that frigate as its owner) and put just short of a merchant ship. The boat's own hit there costs a star.
+  await ev(D_HELPERS);
+  await ev('__G.start(7,"gate"); (function(){ const G=__G, st=G.sim.state, s=__h.ship("merchant"), f=__h.ship("frigate"); __h.near(s,800,30); G.stepFrames(30); G.input.fire=true; G.stepFrames(3); G.input.fire=false; G.said.length=0; const t=st.torps.find(q=>q.id===__h.strike(s)); t.side=1; t.owner=f.id; t.wire=false; let n=0; while(n<300&&st.torps.includes(t)&&!st.over){ G.stepFrames(1); n++; } })(); 1'); await frames(3);
+  const fh = await ev('(function(){ const G=__G, st=G.sim.state; return {said:G.said.slice(),alert:document.getElementById("alert").textContent,over:st.over,neutral:st.stats.neutral,hits:st.stats.hits,torps:st.torps.length}; })()');
+  note(fh.said.includes('A torpedo has hit a neutral merchant ship.') && !fh.said.some(m => /hit a neutral/.test(m) && /your/i.test(m)) && !fh.said.some(m => /costs a star|ends the mission|Points are lost/.test(m)) && !fh.over && fh.neutral === 0 && fh.hits === 0,
+    "a torpedo that is not the boat's hits a merchant ship: the alert line says a torpedo hit it, not the captain's, with no penalty named and none counted", fh);
 }
 
 async function phone() {
