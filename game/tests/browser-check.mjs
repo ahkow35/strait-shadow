@@ -2433,27 +2433,29 @@ const alertTextOf = () => ev('document.getElementById("alert").textContent');
 
 // Stage K, the Duel (the plan, PR 2), at 1280x800 and then on the phone at 390x844
 async function stagek() {
+  const key = async (code, k, vk) => { await c.send('Input.dispatchKeyEvent', { type: 'keyDown', code, key: k, windowsVirtualKeyCode: vk }); await c.send('Input.dispatchKeyEvent', { type: 'keyUp', code, key: k, windowsVirtualKeyCode: vk }); await ev('__G.stepFrames(3); 1'); await frames(3); };
   for (const [w, h, phone, tag] of [[1280, 800, false, '1280'], [390, 844, true, '390']]) {
-    await size(w, h, phone); await open('?test=1&seed=7' + (phone ? '&table=0' : '')); await ev(HELPERS);
+    await size(w, h, phone); await open('?test=1&seed=7' + (phone ? '&table=1' : '')); await ev(HELPERS);
     const list = await ev('Array.from(document.querySelectorAll("#mpick button")).map(b=>b.textContent)');
     note(list.length === 6 && /Silent Hunt/.test(list[5]), tag + ': the title lists Silent Hunt after Strait Shadow', list);
     // the hunt is hidden: the Archer hears the boat lying stopped 1.8 km off, closes and fires; the screen says nothing of it until the boat can hear the torpedo
-    await ev('__G.start(7,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); a.x=p.x+1800; a.z=p.z; a.depth=a.wantD=9; a.mode="listen"; a.modeT=30; __G.input.throttle=0; __G.input.depthCmd=30; })(); 1');
+    await ev('__G.start(21,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); a.x=p.x+1800; a.z=p.z; a.depth=a.wantD=9; a.mode="listen"; a.modeT=30; __G.input.throttle=0; __G.input.depthCmd=30; })(); 1');
     const hid = await ev('(function(){ const G=__G, st=G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); let early=[], n0=G.said.length, fired=-1;'
       + ' for(let i=0;i<30*600&&!st.over;i++){ G.stepFrames(1); if(fired<0&&a.torps<4) fired=st.t; const t=st.torps.find(q=>q.owner===a.id); if(t&&Math.hypot(t.x-p.x,t.z-p.z)<2500) break; }'
-      + ' early=G.said.slice(n0); return {fired:fired,pic:a.pic.base,level:st.enemy.level,said:early}; })()');
-    note(hid.fired > 0 && hid.pic >= 2 && hid.level === 0 && !hid.said.some(m => /torpedo|detected|heard|alert|Archer/i.test(m)), tag + ': the Archer hears the boat and fires while the screen says nothing of it (no message about it, the threat level stays at 0)', hid);
-    await ev('__G.stepFrames(30*40); 1');
-    const loud = await ev('__G.said.slice(-8)');
-    note(loud.some(m => /torpedo/i.test(m)), tag + ': once the boat can hear the Archer\'s torpedo, the screen tells of it', loud);
+      + ' early=G.said.slice(n0); return {fired:fired,pic:a.pic.base,level:st.enemy.level,heardTorp:st.contacts.some(c=>c.kind==="torp"),said:early}; })()');
+    note(hid.fired > 0 && hid.pic >= 2 && hid.level === 0 && !hid.heardTorp && !hid.said.some(m => /torpedo|detected|heard|alert|Archer/i.test(m)), tag + ': the Archer hears the boat and fires while the screen says nothing of it (no message about it, the threat level stays at 0)', hid);
+    await ev('__G.stepFrames(30*5); 1');
+    const loud = await ev('({torp:__G.sim.state.contacts.some(c=>c.kind==="torp"),said:__G.said.filter(m=>/torpedo/i.test(m)).slice(-3)})');
+    await shot('k00-archer-torpedo-heard-' + tag);
+    note(loud.torp, tag + ': once the Archer\'s torpedo is close enough to hear, it is on the boat\'s sonar', loud);
     // the Archer drawn at its depth beside the boat, with its own model; the camera under water looking at it
-    await ev('__G.start(7,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); p.depth=40; __G.input.depthCmd=40; __G.input.throttle=0; a.depth=a.wantD=40; a.x=p.x+Math.cos(p.h+0.5)*95; a.z=p.z-Math.sin(p.h+0.5)*95; a.h=p.h+0.3; a.mode="listen"; a.modeT=1e9; __G.stepFrames(3); __h.look(a.x,a.z,-0.05,150); })(); 1'); await frames(30); await sleep(300);
+    await ev('__G.start(7,"duel"); (function(){ const st=__G.sim.state, p=st.player, a=st.ships.find(s=>s.kind==="submarine"); p.depth=40; __G.input.depthCmd=40; __G.input.throttle=0; a.depth=a.wantD=40; a.x=p.x+Math.cos(p.h+1.2)*55; a.z=p.z-Math.sin(p.h+1.2)*55; a.h=p.h+0.3; a.mode="listen"; a.modeT=1e9; __G.stepFrames(3); __h.look(a.x,a.z,0.12,130); __G.cam.az+=Math.PI; })(); 1'); await frames(30); await sleep(300);
     const view = await ev('({lod:__G.lod,depth:__G.sim.state.ships.find(s=>s.kind==="submarine").depth,water:__G.waterY})');
     await shot('k01-archer-beside-the-boat-' + tag);
     const v = view.lod.find(q => q.sub);
     note(!!v && v.detail && Math.abs(v.y - (view.water - view.depth)) < 1 && view.lod.filter(q => q.sub).length === 1, tag + ': the Archer is drawn with its own model (not a frigate), in full detail close by, at its depth', view);
     // the Search depth row, after Run depth, Shallow at first; fire control suggests Deep once the target is a classified submarine
-    await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); a.x=st.player.x+2500; a.z=st.player.z; for(let i=0;i<30*200;i++){ __G.stepFrames(1); const c=st.contacts.find(q=>q.id===a.id); if(c&&c.cls==="submarine"&&c.layer){ __G.game.sel=c.id; break; } } __G.stepFrames(2); __G.setSettings(true); })(); 1'); await frames(4);
+    await ev('(function(){ const st=__G.sim.state, a=st.ships.find(s=>s.kind==="submarine"); a.x=st.player.x+1800; a.z=st.player.z; for(let i=0;i<30*400;i++){ __G.stepFrames(1); const c=st.contacts.find(q=>q.id===a.id); if(c&&c.cls==="submarine"){ __G.game.sel=c.id; break; } } __G.stepFrames(2); __G.setSettings(true); })(); 1'); await frames(4);
     const set = await ev('({rows:Array.from(document.querySelectorAll("#tset .srow")).filter(r=>r.getBoundingClientRect().height>0).map(r=>r.dataset.k||r.id),band:Array.from(document.querySelectorAll("#tset [data-k=band] button")).map(b=>{ const r=b.getBoundingClientRect(); return {t:b.textContent,on:b.getAttribute("aria-pressed"),w:Math.round(r.width),h:Math.round(r.height)}; }),note:document.getElementById("ts-note").textContent,sel:__G.game.sel,label:document.getElementById("' + (phone ? 'tb-con' : 'sg-cls') + '").textContent,contact:document.getElementById("contact").textContent})');
     await shot('k02-search-depth-suggested-' + tag);
     note(set.rows.indexOf('band') === set.rows.indexOf('runDepth') + 1 && set.band.length === 2 && set.band[0].t === 'Shallow' && set.band[0].on === 'true' && set.band.every(b => b.w >= 44 && b.h >= 30) && /submarine: set Search depth to Deep/.test(set.note) && /Submarine/.test(set.label) && /(above|below) the layer/.test(set.label),

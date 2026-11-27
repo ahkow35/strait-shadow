@@ -2143,7 +2143,7 @@ if (want('sides')) {
 }
 if (mLines.length) { console.log('Missile balance over 200 seeds (the fixed scene of section 5; every layer counted together):'); for (const l of mLines) console.log(l); }
 if (table.length && mRandom.mFire !== undefined) { const q = k => mRandom[k] || 0;
-  console.log('Missiles in the 1,000 random games of the five missions (the scripted players fire torpedoes only): ' + q('mFire') + ' launched; they ended as hit ' + q('m:hit') + ', shot down ' + (q('m:sam') + q('m:gun')) + ' (' + q('m:sam') + ' by a defence missile, ' + q('m:gun')
+  console.log('Missiles in the 1,200 random games of the six missions (the scripted players fire torpedoes only): ' + q('mFire') + ' launched; they ended as hit ' + q('m:hit') + ', shot down ' + (q('m:sam') + q('m:gun')) + ' (' + q('m:sam') + ' by a defence missile, ' + q('m:gun')
     + ' by the gun), decoyed ' + q('m:decoyed') + ', missed ' + q('m:missed') + ', still in flight when the game ended ' + (q('mFire') - q('m:hit') - q('m:sam') - q('m:gun') - q('m:decoyed') - q('m:missed'))
     + '. Launches refused for the solution: ' + (q('no:none') + q('no:grade') + q('no:range') + q('no:other')) + ' (no fit ' + q('no:none') + ', graded None ' + q('no:grade') + ', graded Poor or better but with no range ' + q('no:range') + ', refitted in the same step ' + q('no:other') + ')'); }
 if (table.length) console.log('Wins % scripted/random over 40 seeds: ' + table.join(', '));

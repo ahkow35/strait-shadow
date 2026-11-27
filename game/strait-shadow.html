@@ -521,6 +521,11 @@ body.table #tset .srow{margin-top:0;grid-column:1/-1}
 body.table #tset .srow[data-k="weapon"]{grid-column:1}
 body.table #tset .srow[data-k="launch"],body.table #tset .srow[data-k="attack"]{grid-column:2}
 body.table #tset .srow[data-k="weapon"] span,body.table #tset .srow[data-k="launch"] span,body.table #tset .srow[data-k="attack"] span{display:none}
+/* and Run depth shares a row with Search depth, each named above its two buttons, so the torpedo still needs only four rows */
+body.table #tset .srow[data-k="runDepth"]{grid-column:1}
+body.table #tset .srow[data-k="band"]{grid-column:2}
+body.table #tset .srow[data-k="runDepth"],body.table #tset .srow[data-k="band"]{flex-wrap:wrap;row-gap:3px}
+body.table #tset .srow[data-k="runDepth"] span,body.table #tset .srow[data-k="band"] span{flex:0 0 100%}
 body.table #ts-note{grid-column:1/-1;margin-top:2px}
 body.table .srow span{flex:0 0 50px;letter-spacing:.06em;line-height:1.2}
 body.table .srow button{min-height:44px;font-size:12px;letter-spacing:.02em}
@@ -4588,9 +4593,10 @@ const ARCHER=(function(){
   };
   return {lo:build(false),hi:build(true),len:60};
 })();
+const archerMat=seaLit(paint({vertexColors:true,roughness:0.7,clippingPlanes:[huntClip]}));
 // it hangs at its depth: no wake, no smoke, no bow wave. A record shaped like a ship's, so the rest of the picture code treats it as one.
 function makeSub(){
-  const o=new T.Group(), lo=new T.Mesh(ARCHER.lo,lifeMat), hi=new T.Mesh(ARCHER.hi,lifeMat); hi.visible=false; o.add(lo,hi); o.rotation.order='YXZ'; scene.add(o);
+  const o=new T.Group(), lo=new T.Mesh(ARCHER.lo,archerMat), hi=new T.Mesh(ARCHER.hi,archerMat); hi.visible=false; o.add(lo,hi); o.rotation.order='YXZ'; scene.add(o);
   return {o:o,lo:lo,hi:hi,crew:null,det:null,k:0,outT:0,px:0,hp0:-1,tr:[],side:1,sub:true,len:ARCHER.len,bow:30,stern:-30,beam:3,sx:0,sy:0};
 }
 function makeHelo(){
@@ -5528,7 +5534,7 @@ function wpnHud(st,p){
   let own=0, wired=0, nth=0; for(const t of st.torps) if(t.side===0){ own++; if(t.wire){ wired++; if(t.id===p.wireId) nth=wired; } }
   const show=G.table?own>0:!touchMode(); if(wpnEl.hidden===show){ wpnEl.hidden=!show; if(G.table) layout(); }
   if(!show) return;
-  if(!G.table) setText(wpSum,input.weapon===1?'Missile · '+ATTACKS[input.attack]+(input.route?' · '+ROUTES[input.route]:''):PRESETS.map(q=>q[2][input[q[0]]]).join(' · '));
+  if(!G.table) setText(wpSum,input.weapon===1?'Missile · '+ATTACKS[input.attack]+(input.route?' · '+ROUTES[input.route]:''):PRESETS.map(q=>q[2][input[q[0]]]+(q[0]==='band'?' search':'')).join(' · '));
   if(wpSeek.hidden===own>0){ wpSeek.hidden=!own; if(G.table) layout(); }
   if(!own) return;
   const s=st.seeker;
